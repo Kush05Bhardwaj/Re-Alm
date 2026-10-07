@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class Rarity(StrEnum):
@@ -30,6 +30,26 @@ class QuestStatus(StrEnum):
     ABANDONED = "abandoned"
 
 
+class Archetype(StrEnum):
+    EXPLORER = "explorer"
+    OBSERVER = "observer"
+    SEEKER = "seeker"
+    WANDERER = "wanderer"
+
+
+class PlayerStats(BaseModel):
+    str: int = Field(default=5, ge=0)
+    agi: int = Field(default=5, ge=0)
+    int: int = Field(default=5, ge=0)
+    vit: int = Field(default=5, ge=0)
+    lck: int = Field(default=5, ge=0)
+
+
+class PlayerPreferences(BaseModel):
+    interests: str = Field(default="", max_length=500)
+    quest_duration_minutes: int = Field(default=30, ge=5, le=240)
+
+
 class APIError(BaseModel):
     code: str
     message: str
@@ -47,7 +67,28 @@ class Player(BaseModel):
     id: str
     display_name: str
     created_at: datetime
+    archetype: Archetype = Archetype.EXPLORER
+    level: int = Field(default=1, ge=1)
+    experience: int = Field(default=0, ge=0)
+    experience_to_next_level: int = 100
+    aether: int = Field(default=0, ge=0)
+    stats: PlayerStats = Field(default_factory=PlayerStats)
+    preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)
     progress: Progress | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class PlayerCreate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=32)
+    archetype: Archetype
+    preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)
+
+
+class PlayerProfilePatch(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=32)
+    archetype: Archetype | None = None
+    preferences: PlayerPreferences | None = None
 
 
 class Objective(BaseModel):

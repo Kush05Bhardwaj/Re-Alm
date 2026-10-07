@@ -1,14 +1,16 @@
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from .config import settings
-from .contracts import APIResponse
+from .contracts import APIResponse, Player, PlayerCreate, PlayerProfilePatch
 
 
 @asynccontextmanager
@@ -30,6 +32,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def serialize_player(document: dict) -> Player:
+    document.pop("_id", None)
+    return Player.model_validate(document)
+
+
+@app.post("/api/player/create", response_model=APIResponse, status_code=201, tags=["player"])
+@app.post("/api/v1/player/create", response_model=APIResponse, status_code=201, tags=["player"], include_in_schema=False)
+async def create_player(payload: PlayerCreate) -> APIResponse:
+    player = Player(
+        id=str(uuid4()),
+        display_name=payload.display_name.strip(),
+        created_at=datetime.now(timezone.utc),
+        archetype=payload.archetype,
+        preferences=payload.preferences,
+    )
+    if not player.display_name:
+        raise HTTPException(status_code=422, detail="Player name cannot be blank")
+    await app.state.database.players.insert_one(player.model_dump(mode="json"))
+    return APIResponse(data=player)
+
+
+@app.get("/api/player/me", response_model=APIResponse, tags=["player"])
+@app.get("/api/v1/player/me", response_model=APIResponse, tags=["player"], include_in_schema=False)
+async def get_current_player(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    document = await app.state.database.players.find_one({"id": x_player_id})
+    if document is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return APIResponse(data=serialize_player(document))
+
+
+@app.patch("/api/player/profile", response_model=APIResponse, tags=["player"])
+@app.patch("/api/v1/player/profile", response_model=APIResponse, tags=["player"], include_in_schema=False)
+async def update_player_profile(
+    payload: PlayerProfilePatch,
+    x_player_id: str = Header(..., alias="X-Player-ID"),
+) -> APIResponse:
+    changes = payload.model_dump(exclude_unset=True, exclude_none=True, mode="json")
+    if not changes:
+        raise HTTPException(status_code=400, detail="No profile fields provided")
+    result = await app.state.database.players.update_one({"id": x_player_id}, {"$set": changes})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Player not found")
+    document = await app.state.database.players.find_one({"id": x_player_id})
+    return APIResponse(data=serialize_player(document))
 
 
 @app.exception_handler(HTTPException)
