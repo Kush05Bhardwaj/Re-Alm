@@ -1,6 +1,19 @@
 export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 export type VerificationMethod = "self_reported" | "ai_review" | "server_validated" | "human_review";
 export type QuestStatus = "draft" | "available" | "active" | "completed" | "failed" | "abandoned";
+export type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
+
+export interface PlayerStats {
+  str: number;
+  agi: number;
+  int: number;
+  vit: number;
+  lck: number;
+}
+export interface PlayerPreferences {
+  interests: string;
+  quest_duration_minutes: number;
+}
 
 export interface APIError {
   code: string;
@@ -17,6 +30,13 @@ export interface Player {
   id: string;
   display_name: string;
   created_at: string;
+  archetype: Archetype;
+  level: number;
+  experience: number;
+  experience_to_next_level: number;
+  aether: number;
+  stats: PlayerStats;
+  preferences: PlayerPreferences;
   progress?: Progress | null;
 }
 export interface Objective {
