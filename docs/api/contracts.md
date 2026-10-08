@@ -9,5 +9,8 @@ Enums:
 - Rarity: `common`, `uncommon`, `rare`, `epic`, `legendary`.
 - Verification: `self_reported`, `ai_review`, `server_validated`, `human_review`.
 - Quest status: `draft`, `available`, `active`, `completed`, `failed`, `abandoned`.
+- Quest categories: `exploration`, `observation`, `discovery`, `mystery`, `photography`, `challenge`, `chaos`, `story`.
 
 Initial entities: Player, Quest, Objective, QuestAttempt, Reward, InventoryItem, Summon, Discovery, Progress, NPC, and WorldEvent.
+
+The Game Master endpoint `POST /api/v1/quest/generate` uses `X-Player-ID` and an optional bounded environment selection. The API assembles player progression, recent quest history, and discoveries; asks Ollama for schema-constrained JSON; validates structure, safety, duration, difficulty, rewards, and novelty; then assigns server-owned IDs/status and stores the quest. `GET /api/v1/quest/current` returns the player's latest available quest. The client never submits model output or authoritative player progression.

@@ -37,6 +37,42 @@ class Archetype(StrEnum):
     WANDERER = "wanderer"
 
 
+class QuestCategory(StrEnum):
+    EXPLORATION = "exploration"
+    OBSERVATION = "observation"
+    DISCOVERY = "discovery"
+    MYSTERY = "mystery"
+    PHOTOGRAPHY = "photography"
+    CHALLENGE = "challenge"
+    CHAOS = "chaos"
+    STORY = "story"
+
+
+class EnvironmentType(StrEnum):
+    UNKNOWN = "unknown"
+    INDOOR = "indoor"
+    URBAN = "urban"
+    NATURE = "nature"
+    HOME = "home"
+
+
+class WeatherType(StrEnum):
+    UNKNOWN = "unknown"
+    CLEAR = "clear"
+    RAIN = "rain"
+    SNOW = "snow"
+    HOT = "hot"
+    COLD = "cold"
+
+
+class DayPeriod(StrEnum):
+    UNKNOWN = "unknown"
+    MORNING = "morning"
+    AFTERNOON = "afternoon"
+    EVENING = "evening"
+    NIGHT = "night"
+
+
 class PlayerStats(BaseModel):
     str: int = Field(default=5, ge=0)
     agi: int = Field(default=5, ge=0)
@@ -108,12 +144,38 @@ class Reward(BaseModel):
 
 class Quest(BaseModel):
     id: str
+    player_id: str
     title: str
     description: str
+    category: QuestCategory
+    difficulty: int = Field(ge=1, le=5)
+    estimated_minutes: int = Field(ge=5, le=240)
     objectives: list[Objective]
-    rewards: list[Reward] = Field(default_factory=list)
+    verification: list[VerificationMethod] = Field(default_factory=list)
+    xp_reward: int = Field(ge=0, le=2000)
+    aether_reward: int = Field(ge=0, le=100)
     status: QuestStatus = QuestStatus.AVAILABLE
     level: int = Field(default=1, ge=1)
+    created_at: datetime
+
+
+class QuestEnvironment(BaseModel):
+    setting: EnvironmentType = EnvironmentType.UNKNOWN
+    weather: WeatherType = WeatherType.UNKNOWN
+    time_of_day: DayPeriod = DayPeriod.UNKNOWN
+
+
+class QuestGenerationRequest(BaseModel):
+    environment: QuestEnvironment = Field(default_factory=QuestEnvironment)
+
+
+class QuestGenerationContext(BaseModel):
+    player: dict[str, Any]
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    available_minutes: int = Field(ge=5, le=240)
+    environment: QuestEnvironment = Field(default_factory=QuestEnvironment)
+    progression: dict[str, Any] = Field(default_factory=dict)
+    discoveries: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class QuestAttempt(BaseModel):
@@ -170,9 +232,13 @@ class WorldEvent(BaseModel):
 
 
 class AIQuestOutput(BaseModel):
-    """Constrained JSON contract for quests proposed by the Game Master model."""
+    """Untrusted, structured quest proposal returned by the Game Master."""
     title: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=2000)
-    objectives: list[Objective] = Field(min_length=1, max_length=10)
-    rewards: list[Reward] = Field(default_factory=list, max_length=5)
-    level: int = Field(default=1, ge=1, le=100)
+    category: QuestCategory
+    difficulty: int = Field(ge=1, le=5)
+    estimated_minutes: int = Field(ge=5, le=240)
+    objectives: list[Objective] = Field(min_length=2, max_length=5)
+    verification: list[VerificationMethod] = Field(min_length=1, max_length=4)
+    xp_reward: int = Field(ge=0, le=2000)
+    aether_reward: int = Field(ge=0, le=100)

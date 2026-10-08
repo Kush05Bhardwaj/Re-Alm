@@ -10,7 +10,17 @@ from fastapi.responses import JSONResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from .config import settings
-from .contracts import APIResponse, Player, PlayerCreate, PlayerProfilePatch
+from .contracts import (
+    APIResponse,
+    Player,
+    PlayerCreate,
+    PlayerProfilePatch,
+    Quest,
+    QuestGenerationContext,
+    QuestGenerationRequest,
+    QuestStatus,
+)
+from .game_master import QuestGenerationError, generate_quest
 
 
 @asynccontextmanager
@@ -78,6 +88,83 @@ async def update_player_profile(
         raise HTTPException(status_code=404, detail="Player not found")
     document = await app.state.database.players.find_one({"id": x_player_id})
     return APIResponse(data=serialize_player(document))
+
+
+@app.post("/api/quest/generate", response_model=APIResponse, status_code=201, tags=["quest"])
+@app.post("/api/v1/quest/generate", response_model=APIResponse, status_code=201, tags=["quest"], include_in_schema=False)
+async def create_quest(
+    payload: QuestGenerationRequest,
+    x_player_id: str = Header(..., alias="X-Player-ID"),
+) -> APIResponse:
+    player_document = await app.state.database.players.find_one({"id": x_player_id})
+    if player_document is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    player = Player.model_validate({key: value for key, value in player_document.items() if key != "_id"})
+
+    history_documents = await app.state.database.quests.find({"player_id": x_player_id}).sort("created_at", -1).limit(12).to_list(length=12)
+    history = [
+        {key: value for key, value in item.items() if key in {"title", "category", "description", "objectives"}}
+        for item in history_documents
+    ]
+    discovery_documents = await app.state.database.discoveries.find({"player_id": x_player_id}).sort("discovered_at", -1).limit(20).to_list(length=20)
+    discoveries = [
+        {key: value for key, value in item.items() if key == "subject_id"}
+        for item in discovery_documents
+    ]
+    context = QuestGenerationContext(
+        player={
+            "display_name": player.display_name,
+            "level": player.level,
+            "archetype": player.archetype.value,
+            "interests": player.preferences.interests,
+        },
+        history=history,
+        available_minutes=player.preferences.quest_duration_minutes,
+        environment=payload.environment,
+        progression={
+            "level": player.level,
+            "experience": player.experience,
+            "experience_to_next_level": player.experience_to_next_level,
+            "completed_quests": sum(1 for item in history_documents if item.get("status") == QuestStatus.COMPLETED.value),
+        },
+        discoveries=discoveries,
+    )
+    try:
+        proposal = await generate_quest(context)
+    except QuestGenerationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    quest = Quest(
+        id=str(uuid4()),
+        player_id=x_player_id,
+        title=proposal.title,
+        description=proposal.description,
+        category=proposal.category,
+        difficulty=proposal.difficulty,
+        estimated_minutes=proposal.estimated_minutes,
+        objectives=[objective.model_copy(update={"id": str(uuid4())}) for objective in proposal.objectives],
+        verification=proposal.verification,
+        xp_reward=proposal.xp_reward,
+        aether_reward=proposal.aether_reward,
+        status=QuestStatus.AVAILABLE,
+        level=player.level,
+        created_at=datetime.now(timezone.utc),
+    )
+    await app.state.database.quests.insert_one(quest.model_dump(mode="json"))
+    return APIResponse(data=quest)
+
+
+@app.get("/api/quest/current", response_model=APIResponse, tags=["quest"])
+@app.get("/api/v1/quest/current", response_model=APIResponse, tags=["quest"], include_in_schema=False)
+async def get_current_quest(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    document = await app.state.database.quests.find_one(
+        {"player_id": x_player_id, "status": QuestStatus.AVAILABLE.value},
+        sort=[("created_at", -1)],
+    )
+    if document is None:
+        return APIResponse(data=None)
+    document.pop("_id", None)
+    return APIResponse(data=Quest.model_validate(document))
 
 
 @app.exception_handler(HTTPException)

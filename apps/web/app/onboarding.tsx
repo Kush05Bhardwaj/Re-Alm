@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { APIResponse, Player } from "@realm/types";
+import type { APIResponse, EnvironmentType, Player, Quest } from "@realm/types";
 
 type Screen = "boot" | "welcome" | "create" | "world";
 type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
@@ -32,6 +32,10 @@ export default function Onboarding() {
   const [interests, setInterests] = useState("");
   const [duration, setDuration] = useState(30);
   const [player, setPlayer] = useState<Player | null>(null);
+  const [quest, setQuest] = useState<Quest | null>(null);
+  const [environment, setEnvironment] = useState<EnvironmentType>("unknown");
+  const [questLoading, setQuestLoading] = useState(false);
+  const [questError, setQuestError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -42,7 +46,13 @@ export default function Onboarding() {
       const id = window.localStorage.getItem(playerKey);
       if (id) {
         try {
-          setPlayer(await requestPlayer("/api/player/me", undefined, id));
+          const currentPlayer = await requestPlayer("/api/player/me", undefined, id);
+          setPlayer(currentPlayer);
+          try {
+            const currentResponse = await fetch(`${apiBase}/api/quest/current`, { headers: { "X-Player-ID": id } });
+            const currentBody = (await currentResponse.json()) as APIResponse<Quest>;
+            if (currentResponse.ok && currentBody.data) setQuest(currentBody.data);
+          } catch { /* The profile remains available if quest history cannot load. */ }
           setScreen("world");
           return;
         } catch {
@@ -70,6 +80,26 @@ export default function Onboarding() {
       setError(cause instanceof Error ? cause.message : "Connection to the system failed.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function requestQuest() {
+    if (!player || questLoading) return;
+    setQuestLoading(true);
+    setQuestError("");
+    try {
+      const response = await fetch(`${apiBase}/api/quest/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Player-ID": player.id },
+        body: JSON.stringify({ environment: { setting: environment } }),
+      });
+      const body = (await response.json()) as APIResponse<Quest>;
+      if (!response.ok || !body.data) throw new Error(body.error?.message ?? "The Game Master could not create a quest.");
+      setQuest(body.data);
+    } catch (cause) {
+      setQuestError(cause instanceof Error ? cause.message : "The Game Master is unreachable.");
+    } finally {
+      setQuestLoading(false);
     }
   }
 
@@ -105,7 +135,24 @@ export default function Onboarding() {
     </section>}
 
     {screen === "world" && player && <section className="world-screen view-enter">
-      <div className="world-welcome"><div className="signal-line"><span /> WORLD LINK ESTABLISHED</div><p className="world-overline">YOUR STORY BEGINS HERE</p><h1>Welcome to the<br /><em>unexplored, {player.display_name}.</em></h1><p className="world-description">The world is waiting. Keep your eyes open; every path has a first step.</p></div>
+      <div className="world-welcome"><div className="signal-line"><span /> WORLD LINK ESTABLISHED</div><p className="world-overline">YOUR STORY BEGINS HERE</p><h1>Welcome to the<br /><em>unexplored, {player.display_name}.</em></h1><p className="world-description">The world is waiting. Keep your eyes open; every path has a first step.</p>
+        <section className="quest-panel" aria-live="polite">
+          <div className="quest-kicker">NEXT QUEST <span>// GAME MASTER</span></div>
+          {!quest && <p className="quest-intro">The Game Master is listening to your path and ready to shape what comes next.</p>}
+          <label className="field-label quest-setting-label" htmlFor="quest-setting">YOUR SURROUNDINGS</label>
+          <select id="quest-setting" className="text-input quest-setting" value={environment} onChange={(event) => setEnvironment(event.target.value as EnvironmentType)}>
+            <option value="unknown">Let the world surprise me</option><option value="home">At home</option><option value="indoor">An indoor public place</option><option value="urban">Around the city</option><option value="nature">Outdoors in nature</option>
+          </select>
+          <button className="primary-button quest-button" onClick={requestQuest} disabled={questLoading}><span>{questLoading ? "CONSULTING THE GAME MASTER..." : quest ? "GENERATE ANOTHER QUEST" : "GENERATE MY FIRST QUEST"}</span><b>↗</b></button>
+          {questError && <p className="form-error" role="alert">SYSTEM ERROR — {questError}</p>}
+          {quest && <article className="quest-result">
+            <div className="quest-result-meta"><span>{quest.category.toUpperCase()}</span><span>LV. {String(quest.level).padStart(2, "0")} · {quest.estimated_minutes} MIN</span></div>
+            <h2>{quest.title}</h2><p>{quest.description}</p>
+            <ol>{quest.objectives.map((objective) => <li key={objective.id}>{objective.description}</li>)}</ol>
+            <div className="quest-rewards"><span>✦ {quest.aether_reward} AETHER</span><span>{quest.xp_reward} EXP</span><span>DIFFICULTY {quest.difficulty}/5</span></div>
+          </article>}
+        </section>
+      </div>
       <aside className="player-card"><div className="card-topline"><span>PLAYER PROFILE</span><span className="online-tag"><i /> ACTIVE</span></div>
         <div className="profile-identity"><div className="avatar-seal">{player.display_name.slice(0, 1).toUpperCase()}</div><div><p className="player-label">PLAYER</p><h2>{player.display_name}</h2></div><span className="level-badge">LV. {String(player.level).padStart(2, "0")}</span></div>
         <div className="experience-block"><div className="exp-label"><span>EXP</span><span>{player.experience} <i>/</i> {player.experience_to_next_level}</span></div><div className="exp-track"><span style={{ width: `${Math.min(100, (player.experience / player.experience_to_next_level) * 100)}%` }} /></div></div>
