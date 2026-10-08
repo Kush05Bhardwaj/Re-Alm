@@ -1,6 +1,6 @@
 # Re-Alm# RE — Realm Engine
 
-RE is an AI-guided game world. This repository contains its Phase 0 foundation: a Next.js and TypeScript web app, a versioned FastAPI service, MongoDB integration, local Ollama/Gemma wiring, and shared domain contracts. Gameplay systems are intentionally not implemented yet.
+RE is an AI-guided game world. This repository contains a Next.js and TypeScript web app, a versioned FastAPI service, MongoDB persistence, local Ollama/Gemma integration, and shared domain contracts. Phase 1 player setup and the Phase 2 AI Game Master quest loop are implemented.
 
 ## Stack
 
@@ -32,7 +32,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; interactive API docs are at `http://localhost:8000/docs`. Mongo and AI readiness checks are `/api/v1/health/database` and `/api/v1/health/ai`. API startup does not require dependencies to be online; those endpoints report dependency readiness.
+The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; interactive API docs are at `http://localhost:8000/docs`. Player setup is under `/api/v1/player`, and `POST /api/v1/quest/generate` asks Gemma for a validated, personalized quest. Mongo and AI readiness checks are `/api/v1/health/database` and `/api/v1/health/ai`. API startup does not require dependencies to be online; those endpoints report dependency readiness.
 
 For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
 

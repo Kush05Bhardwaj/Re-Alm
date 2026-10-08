@@ -14,7 +14,9 @@ services:
     volumes:
       - ollama-data:/root/.ollama
   api:
-    build: ./apps/api
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:

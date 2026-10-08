@@ -2,6 +2,10 @@ export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 export type VerificationMethod = "self_reported" | "ai_review" | "server_validated" | "human_review";
 export type QuestStatus = "draft" | "available" | "active" | "completed" | "failed" | "abandoned";
 export type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
+export type QuestCategory = "exploration" | "observation" | "discovery" | "mystery" | "photography" | "challenge" | "chaos" | "story";
+export type EnvironmentType = "unknown" | "indoor" | "urban" | "nature" | "home";
+export type WeatherType = "unknown" | "clear" | "rain" | "snow" | "hot" | "cold";
+export type DayPeriod = "unknown" | "morning" | "afternoon" | "evening" | "night";
 
 export interface PlayerStats {
   str: number;
@@ -54,12 +58,19 @@ export interface Reward {
 }
 export interface Quest {
   id: string;
+  player_id: string;
   title: string;
   description: string;
+  category: QuestCategory;
+  difficulty: number;
+  estimated_minutes: number;
   objectives: Objective[];
-  rewards: Reward[];
+  verification: VerificationMethod[];
+  xp_reward: number;
+  aether_reward: number;
   status: QuestStatus;
   level: number;
+  created_at: string;
 }
 export interface QuestAttempt {
   id: string;
