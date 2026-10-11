@@ -8,11 +8,13 @@ export type WeatherType = "unknown" | "clear" | "rain" | "snow" | "hot" | "cold"
 export type DayPeriod = "unknown" | "morning" | "afternoon" | "evening" | "night";
 export type VerificationLevel = "self" | "location" | "vision" | "combined";
 export type ProgressionEventType = "OBJECTIVE_COMPLETE" | "QUEST_COMPLETE" | "BONUS_OBJECTIVE" | "RARE_DISCOVERY";
+export type AetherTransactionType = "AETHER_EARN" | "AETHER_SPEND" | "AETHER_REFUND";
 export interface GeoPoint { latitude: number; longitude: number }
 export interface VerificationResult { verified: boolean; method: VerificationLevel; message: string; confidence?: number }
 export interface ProgressionEvent { id: string; player_id: string; event_type: ProgressionEventType; xp: number; created_at: string; level_before: number; level_after: number; stat_increases: Record<string, number>; source_id?: string | null }
 export interface ProgressSnapshot { level: number; experience: number; experience_to_next_level: number; progress_percent: number; total_experience: number; stats: PlayerStats; completed_quest_ids: string[]; recent_events: ProgressionEvent[] }
 export interface ProgressStats { level: number; total_experience: number; completed_quests: number; discoveries: number; attributes: PlayerStats; reward_events: { event_type: ProgressionEventType; count: number; xp: number }[] }
+export interface AetherTransaction { id: string; player_id: string; transaction_type: AetherTransactionType; amount: number; source_id?: string | null; created_at: string; status: "pending" | "applied" | "rejected"; balance_before?: number | null; balance_after?: number | null }
 
 export interface PlayerStats {
   str: number;

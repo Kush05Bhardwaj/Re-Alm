@@ -36,6 +36,8 @@ The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; 
 
 Quest objectives now award progression XP, quest clears grant a completion bonus, and every level adds one random attribute point. XP carries forward using a threshold of `100 × current level`. Progress snapshots and aggregates are available at `/api/v1/progress` and `/api/v1/progress/stats`; see [progression contracts](docs/api/contracts.md#progression) for event values.
 
+Quest completion grants 30 Aether and records the transaction in the Aether ledger. Read ledger history at `/api/v1/aether/ledger`; future summon handlers should use the server-side balance-checked spend helper. See [Aether economy contracts](docs/api/contracts.md#aether-economy).
+
 For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
 
 ## Repository map
