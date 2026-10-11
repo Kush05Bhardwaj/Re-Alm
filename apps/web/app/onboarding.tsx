@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { APIResponse, EnvironmentType, Player, Quest } from "@realm/types";
 import { SelfVerification, VisionVerification } from "./verification";
 
+type ProgressResult = { quest_completed?: boolean; xp_awarded?: number; level_before?: number; level_after?: number; levels_gained?: number; stat_increases?: Record<string, number>; objective_progress?: Record<string, boolean> };
+
 type Screen = "boot" | "welcome" | "create" | "world";
 type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
 const archetypes: { id: Archetype; title: string; description: string; mark: string }[] = [
@@ -43,6 +45,7 @@ export default function Onboarding() {
   const [objectiveProgress, setObjectiveProgress] = useState<Record<string, boolean>>({});
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verifying, setVerifying] = useState("");
+  const [levelUp, setLevelUp] = useState<{ before: number; after: number; xp: number; stats: Record<string, number>; questCompleted: boolean } | null>(null);
 
   useEffect(() => {
     const first = window.setTimeout(() => setBootStage(1), 650);
@@ -121,6 +124,31 @@ export default function Onboarding() {
     } catch { setVerificationMessage("Could not connect to start this quest."); }
   }
 
+  function announceProgress(data: ProgressResult) {
+    const xp = data.xp_awarded ?? 0;
+    const before = data.level_before ?? 1;
+    const after = data.level_after ?? before;
+    const questCompleted = data.quest_completed === true;
+    setVerificationMessage(`${questCompleted ? "QUEST CLEAR · " : ""}+${xp} EXP${questCompleted ? " awarded." : " earned."}`);
+    if (xp > 0 && player) void requestPlayer("/api/player/me", undefined, player.id).then(setPlayer).catch(() => {});
+    if (after > before) {
+      setLevelUp({ before, after, xp, stats: data.stat_increases ?? {}, questCompleted });
+      try {
+        const audio = new window.AudioContext();
+        const oscillator = audio.createOscillator();
+        const gain = audio.createGain();
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(660, audio.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(990, audio.currentTime + 0.24);
+        gain.gain.setValueAtTime(0.08, audio.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.5);
+        oscillator.connect(gain); gain.connect(audio.destination);
+        oscillator.start(); oscillator.stop(audio.currentTime + 0.5);
+        oscillator.onended = () => void audio.close();
+      } catch { /* Audio can be unavailable or disabled by the browser. */ }
+    }
+  }
+
   async function verifyObjective(objectiveId: string, description: string, photo?: File) {
     if (!quest || !player) return;
     setVerifying(objectiveId);
@@ -129,26 +157,27 @@ export default function Onboarding() {
       if (photo) {
         const result = await new VisionVerification().verify({ file: photo, objective: description, api: async (image) => {
           const response = await fetch(`${apiBase}/api/quest/${quest.id}/objectives/${objectiveId}/verify`, { method: "POST", headers: { "Content-Type": "application/json", "X-Player-ID": player.id }, body: JSON.stringify({ image_base64: image }) });
-          const body = await response.json();
+          const body = await response.json() as APIResponse<ProgressResult>;
           if (response.ok && body.data) {
             setObjectiveProgress(body.data.objective_progress ?? {});
-        if (body.data.quest_completed) { setVerificationMessage("Quest complete. Rewards added to your profile."); setQuest(null); setPlayer(await requestPlayer("/api/player/me", undefined, player.id)); }
+            announceProgress(body.data);
+            if (body.data.quest_completed) setQuest(null);
             return body.data;
           }
           return { verified: false, method: "vision", message: body.error?.message ?? "Image review failed." };
         } });
         if (result.verified) setObjectiveProgress((current) => ({ ...current, [objectiveId]: true }));
-        setVerificationMessage(result.message);
+        else setVerificationMessage(result.message);
         return;
       }
       const result = await new SelfVerification().verify({ confirmed: true });
       const payload = { confirmed: result.verified };
       const response = await fetch(`${apiBase}/api/quest/${quest.id}/objectives/${objectiveId}/verify`, { method: "POST", headers: { "Content-Type": "application/json", "X-Player-ID": player.id }, body: JSON.stringify(payload) });
-      const body = await response.json();
+      const body = await response.json() as APIResponse<ProgressResult>;
       if (!response.ok || !body.data) throw new Error(body.error?.message ?? "Could not verify objective.");
       setObjectiveProgress(body.data.objective_progress ?? {});
-            if (body.data.quest_completed) { setVerificationMessage("Quest complete. Rewards added to your profile."); setQuest(null); void requestPlayer("/api/player/me", undefined, player.id).then(setPlayer); }
-      else setVerificationMessage(body.data.message);
+      announceProgress(body.data);
+      if (body.data.quest_completed) setQuest(null);
     } catch (cause) { setVerificationMessage(cause instanceof Error ? cause.message : "Verification could not be completed."); }
     finally { setVerifying(""); }
   }
@@ -199,7 +228,7 @@ export default function Onboarding() {
             <div className="quest-result-meta"><span>{quest.category.toUpperCase()}</span><span>LV. {String(quest.level).padStart(2, "0")} · {quest.estimated_minutes} MIN</span></div>
             <h2>{quest.title}</h2><p>{quest.description}</p>
             <ol>{quest.objectives.map((objective) => <li key={objective.id}>{objective.description}</li>)}</ol>
-            <div className="quest-rewards"><span>✦ {quest.aether_reward} AETHER</span><span>{quest.xp_reward} EXP</span><span>DIFFICULTY {quest.difficulty}/5</span></div>
+            <div className="quest-rewards"><span>✦ {quest.aether_reward} AETHER</span><span>+20 OBJECTIVE · +25 BONUS · +100 CLEAR EXP</span><span>DIFFICULTY {quest.difficulty}/5</span></div>
             {!questActive && <button className="primary-button quest-button" onClick={startQuest}><span>START THIS QUEST</span><b>↗</b></button>}
             {questActive && <div className="objective-verification"><p className="field-label">OBJECTIVES · VERIFY AS YOU GO</p>{quest.objectives.map((objective) => <div className="verify-row" key={objective.id}><span>{objective.description}</span>{objectiveProgress[objective.id] ? <b>VERIFIED</b> : objective.verification === "ai_review" ? <label className="verify-upload">UPLOAD PHOTO<input type="file" accept="image/*" capture="environment" disabled={!!verifying} onChange={(event) => { const file = event.target.files?.[0]; if (file) void verifyObjective(objective.id, objective.description, file); event.currentTarget.value = ""; }} /></label> : <button className="verify-button" disabled={!!verifying} onClick={() => void verifyObjective(objective.id, objective.description)}>{verifying === objective.id ? "SAVING…" : "YES"}</button>}</div>)}</div>}
           </article>}
@@ -214,6 +243,7 @@ export default function Onboarding() {
         <div className="profile-footer">PATH: {player.preferences.quest_duration_minutes} MIN <span>IDENTITY SAVED</span></div>
       </aside><div className="world-coordinate">RE:ALM <span>·</span> UNKNOWN REGION <span>·</span> DISCOVERY AWAITS</div>
     </section>}
+    {levelUp && <div className="levelup-backdrop" role="dialog" aria-modal="true" aria-labelledby="levelup-title"><section className="levelup-card"><p>{levelUp.questCompleted ? "QUEST CLEAR" : "PROGRESSION"}</p><h2 id="levelup-title">LEVEL UP</h2><div className="levelup-change">{String(levelUp.before).padStart(2, "0")} <span>→</span> {String(levelUp.after).padStart(2, "0")}</div><div className="levelup-reward">+{levelUp.xp} EXP</div><div className="levelup-stats">{Object.entries(levelUp.stats).map(([stat, count]) => <span key={stat}>{stat.toUpperCase()} <b>+{count}</b></span>)}</div><button className="primary-button" onClick={() => setLevelUp(null)}><span>CONTINUE</span><b>↗</b></button></section></div>}
     <footer className="site-footer"><span>RE:ALM <i>—</i> FIND YOUR WAY THROUGH.</span><span>AN OPEN WORLD, ONE STEP AT A TIME.</span></footer>
   </main>;
 }
