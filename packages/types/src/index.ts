@@ -99,6 +99,8 @@ export interface SummonContent { id: string; name: string; category: SummonCateg
 export interface Summon { id: string; player_id: string; entity_id: string; content: SummonContent; acquired_at: string; count: number; first_attempt_id: string; summon_attempt_ids: string[] }
 export interface SummonPool { cost: number; rates: Record<SummonRarity, number>; duplicate_refunds: Record<SummonRarity, number>; categories: SummonCategory[]; pool: SummonContent[] }
 export interface SummonResult { attempt_id: string; content: SummonContent; duplicate: boolean; duplicate_refund: number; cost: number; aether_balance: number; collection_count: number }
+export interface InventoryEntry { id: string; name: string; rarity: SummonRarity; type: SummonCategory; description: string; how_obtained: string; effect: Record<string, unknown>; unlocked: boolean; count: number; acquired_at?: string | null }
+export interface CollectionProgress { total_discovered: number; total_available: number; rarity_discovered: Record<SummonRarity, number>; rarity_available: Record<SummonRarity, number>; quest_types_discovered: QuestCategory[]; npcs_discovered: number; titles_unlocked: string[] }
 export interface Discovery { id: string; player_id: string; subject_id: string; discovered_at: string }
 export interface Progress { level: number; experience: number; completed_quest_ids: string[] }
 export interface NPC { id: string; name: string; description: string; location_id?: string | null }

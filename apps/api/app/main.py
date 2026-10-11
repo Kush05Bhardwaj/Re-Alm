@@ -28,6 +28,7 @@ from .economy import InsufficientAether, QUEST_COMPLETE_AETHER, earn_aether
 from .progression import add_xp, calculate_next_level_xp
 from .verification import SelfVerification, VisionVerification
 from .summons import SummonConfigurationError, get_collection, get_summon_pool, perform_summon
+from .inventory import get_collection_progress, get_inventory_item, list_inventory
 
 
 @asynccontextmanager
@@ -189,6 +190,45 @@ async def summon(payload: SummonRequest, x_player_id: str = Header(..., alias="X
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except InsufficientAether as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
+    except SummonConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/inventory", response_model=APIResponse, tags=["inventory"])
+@app.get("/api/v1/inventory", response_model=APIResponse, tags=["inventory"], include_in_schema=False)
+async def inventory(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id}, {"_id": 0, "id": 1})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    try:
+        return APIResponse(data=await list_inventory(app.state.database, x_player_id))
+    except SummonConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/inventory/{item_id}", response_model=APIResponse, tags=["inventory"])
+@app.get("/api/v1/inventory/{item_id}", response_model=APIResponse, tags=["inventory"], include_in_schema=False)
+async def inventory_item(item_id: str, x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id}, {"_id": 0, "id": 1})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    try:
+        item = await get_inventory_item(app.state.database, x_player_id, item_id)
+    except SummonConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if item is None:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+    return APIResponse(data=item)
+
+
+@app.get("/api/collection/progress", response_model=APIResponse, tags=["inventory"])
+@app.get("/api/v1/collection/progress", response_model=APIResponse, tags=["inventory"], include_in_schema=False)
+async def collection_progress(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    try:
+        return APIResponse(data=await get_collection_progress(app.state.database, player))
     except SummonConfigurationError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

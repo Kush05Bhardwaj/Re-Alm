@@ -40,6 +40,8 @@ Quest completion grants 30 Aether and records the transaction in the Aether ledg
 
 Phase 7 adds server-side adventure summons: quest clears award 30 Aether, `/api/v1/summon` spends a configurable 30 Aether, and pulled content enters the player's collection with a gameplay effect. Duplicate pulls return configurable Aether refunds. Configure rates and refunds in `.env`; the default rarity rates are R 70%, SR 25%, SSR 4.5%, and UR 0.5%. Read [summon API contracts](docs/api/contracts.md#summons).
 
+Phase 8 adds a player inventory and collection view. `GET /api/v1/inventory` lists unlocked and locked adventure cards; `/api/v1/inventory/{id}` returns item detail. `GET /api/v1/collection/progress` summarizes discovered content, rarity completion, completed quest categories, NPC cards, and titles. See [inventory and collection contracts](docs/api/contracts.md#inventory-and-collection).
+
 For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
 
 ## Repository map

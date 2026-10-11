@@ -256,6 +256,29 @@ class Summon(BaseModel):
     summon_attempt_ids: list[str] = Field(default_factory=list)
 
 
+class InventoryEntry(BaseModel):
+    id: str
+    name: str
+    rarity: SummonRarity
+    type: SummonCategory
+    description: str
+    how_obtained: str
+    effect: dict[str, Any]
+    unlocked: bool
+    count: int = Field(default=0, ge=0)
+    acquired_at: str | None = None
+
+
+class CollectionProgress(BaseModel):
+    total_discovered: int = Field(ge=0)
+    total_available: int = Field(ge=0)
+    rarity_discovered: dict[str, int] = Field(default_factory=dict)
+    rarity_available: dict[str, int] = Field(default_factory=dict)
+    quest_types_discovered: list[str] = Field(default_factory=list)
+    npcs_discovered: int = Field(ge=0)
+    titles_unlocked: list[str] = Field(default_factory=list)
+
+
 class Discovery(BaseModel):
     id: str
     player_id: str

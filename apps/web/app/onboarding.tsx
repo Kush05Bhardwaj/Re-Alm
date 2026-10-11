@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { APIResponse, EnvironmentType, Player, Quest, Summon, SummonPool, SummonResult } from "@realm/types";
+import type { APIResponse, CollectionProgress, EnvironmentType, InventoryEntry, Player, Quest, SummonCategory, SummonPool, SummonResult } from "@realm/types";
 import { SelfVerification, VisionVerification } from "./verification";
 
 type ProgressResult = { quest_completed?: boolean; xp_awarded?: number; level_before?: number; level_after?: number; levels_gained?: number; stat_increases?: Record<string, number>; objective_progress?: Record<string, boolean> };
@@ -47,7 +47,10 @@ export default function Onboarding() {
   const [verifying, setVerifying] = useState("");
   const [levelUp, setLevelUp] = useState<{ before: number; after: number; xp: number; stats: Record<string, number>; questCompleted: boolean } | null>(null);
   const [summonPool, setSummonPool] = useState<SummonPool | null>(null);
-  const [collection, setCollection] = useState<Summon[]>([]);
+  const [collection, setCollection] = useState<InventoryEntry[]>([]);
+  const [collectionProgress, setCollectionProgress] = useState<CollectionProgress | null>(null);
+  const [inventoryFilter, setInventoryFilter] = useState<SummonCategory | "ALL">("QUEST");
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState<InventoryEntry | null>(null);
   const [summonStage, setSummonStage] = useState("");
   const [summonResult, setSummonResult] = useState<SummonResult | null>(null);
   const [summonError, setSummonError] = useState("");
@@ -68,7 +71,7 @@ export default function Onboarding() {
         try {
           const currentPlayer = await requestPlayer("/api/player/me", undefined, id);
           setPlayer(currentPlayer);
-          void loadCollection(id);
+          void loadInventory(id);
           try {
             const currentResponse = await fetch(`${apiBase}/api/quest/current`, { headers: { "X-Player-ID": id } });
             const currentBody = (await currentResponse.json()) as APIResponse<Quest>;
@@ -96,6 +99,7 @@ export default function Onboarding() {
       });
       window.localStorage.setItem(playerKey, created.id);
       setPlayer(created);
+      void loadInventory(created.id);
       setScreen("world");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Connection to the system failed.");
@@ -104,12 +108,30 @@ export default function Onboarding() {
     }
   }
 
-  async function loadCollection(id: string) {
+  async function loadInventory(id: string) {
     try {
-      const response = await fetch(`${apiBase}/api/summon/collection`, { headers: { "X-Player-ID": id } });
-      const body = await response.json() as APIResponse<Summon[]>;
-      if (response.ok && body.data) setCollection(body.data);
+      const headers = { "X-Player-ID": id };
+      const [inventoryResponse, progressResponse] = await Promise.all([
+        fetch(`${apiBase}/api/inventory`, { headers }),
+        fetch(`${apiBase}/api/collection/progress`, { headers }),
+      ]);
+      const [inventoryBody, progressBody] = await Promise.all([
+        inventoryResponse.json() as Promise<APIResponse<InventoryEntry[]>>,
+        progressResponse.json() as Promise<APIResponse<CollectionProgress>>,
+      ]);
+      if (inventoryResponse.ok && inventoryBody.data) setCollection(inventoryBody.data);
+      if (progressResponse.ok && progressBody.data) setCollectionProgress(progressBody.data);
     } catch { /* Collection loading does not block the player profile. */ }
+  }
+
+  async function showInventoryItem(item: InventoryEntry) {
+    if (!player) return;
+    try {
+      const response = await fetch(`${apiBase}/api/inventory/${encodeURIComponent(item.id)}`, { headers: { "X-Player-ID": player.id } });
+      const body = await response.json() as APIResponse<InventoryEntry>;
+      if (response.ok && body.data) { setSelectedInventoryItem(body.data); return; }
+    } catch { /* Show the catalog entry already loaded for the collection view. */ }
+    setSelectedInventoryItem(item);
   }
 
   async function summon() {
@@ -136,7 +158,7 @@ export default function Onboarding() {
       setSummonStage("CONTENT REVEAL");
       const updatedPlayer = await requestPlayer("/api/player/me", undefined, player.id);
       setPlayer(updatedPlayer);
-      await loadCollection(player.id);
+      await loadInventory(player.id);
       setSummonStage("REWARD RECEIVED");
     } catch (cause) {
       setSummonError(cause instanceof Error ? cause.message : "Summoning failed.");
@@ -186,6 +208,7 @@ export default function Onboarding() {
     const questCompleted = data.quest_completed === true;
     setVerificationMessage(`${questCompleted ? "QUEST CLEAR · " : ""}+${xp} EXP${questCompleted ? " awarded." : " earned."}`);
     if (xp > 0 && player) void requestPlayer("/api/player/me", undefined, player.id).then(setPlayer).catch(() => {});
+    if (questCompleted && player) void loadInventory(player.id);
     if (after > before) {
       setLevelUp({ before, after, xp, stats: data.stat_increases ?? {}, questCompleted });
       try {
@@ -236,6 +259,17 @@ export default function Onboarding() {
     } catch (cause) { setVerificationMessage(cause instanceof Error ? cause.message : "Verification could not be completed."); }
     finally { setVerifying(""); }
   }
+
+  const inventoryCategories: { id: SummonCategory | "ALL"; label: string }[] = [
+    { id: "ALL", label: "ALL" }, { id: "QUEST", label: "QUESTS" }, { id: "ABILITY", label: "ABILITIES" },
+    { id: "ENCOUNTER", label: "ENCOUNTERS" }, { id: "NPC", label: "NPCS" }, { id: "STORY", label: "STORIES" }, { id: "TITLE", label: "TITLES" },
+  ];
+  const visibleInventory = collection.filter((item) => inventoryFilter === "ALL" || item.type === inventoryFilter);
+  const rarityProgress = (["R", "SR", "SSR", "UR"] as const).map((rarity) => {
+    const items = visibleInventory.filter((item) => item.rarity === rarity);
+    const found = items.filter((item) => item.unlocked).length;
+    return { rarity, found, total: items.length, segments: items.length ? Math.round(found * 10 / items.length) : 0 };
+  });
 
   return <main className="realm-shell" id="top">
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
@@ -296,10 +330,17 @@ export default function Onboarding() {
         <div className="profile-meta"><div><span className="meta-label">AETHER</span><strong className="aether-value"><i>✦</i> {player.aether}</strong></div><div><span className="meta-label">CLASS</span><strong>{player.archetype.charAt(0).toUpperCase() + player.archetype.slice(1)}</strong></div></div>
         <div className="stats-block"><div className="stats-title">BASE ATTRIBUTES <span>01</span></div><div className="stats-grid">{([["STR", player.stats.str], ["AGI", player.stats.agi], ["INT", player.stats.int], ["VIT", player.stats.vit], ["LCK", player.stats.lck]] as const).map(([label, value]) => <div className="stat" key={label}><span>{label}</span><b>{String(value).padStart(2, "0")}</b></div>)}</div></div>
         {summonPool && <section className="summon-panel"><div className="stats-title">SYSTEM SUMMON <span>{summonPool.cost} AETHER</span></div><p>Summon an adventure that changes the paths ahead.</p><button className="primary-button summon-button" onClick={() => void summon()} disabled={summoning || player.aether < summonPool.cost}><span>{summoning ? "CHANNELING..." : "SUMMON CONTENT"}</span><b>✦</b></button>{player.aether < summonPool.cost && <small>Complete quests to earn more Aether.</small>}{summonError && <p className="form-error" role="alert">{summonError}</p>}</section>}
-        <section className="collection-panel"><div className="stats-title">COLLECTION <span>{collection.length} UNLOCKS</span></div>{collection.length === 0 ? <p>Adventure content you summon will appear here.</p> : <ul>{collection.map((item) => <li key={item.id}><span className={`rarity rarity-${item.content.rarity.toLowerCase()}`}>{item.content.rarity}</span><div><strong>{item.content.name}</strong><small>{item.content.category} · {item.count > 1 ? `×${item.count}` : item.content.description}</small></div></li>)}</ul>}</section>
+        <section className="collection-panel">
+          <div className="stats-title">COLLECTION PROGRESS <span>{collectionProgress ? `${collectionProgress.total_discovered}/${collectionProgress.total_available} FOUND` : "LOADING"}</span></div>
+          <div className="collection-discovery"><span>QUEST TYPES <b>{collectionProgress?.quest_types_discovered.length ?? 0}</b></span><span>NPCS <b>{collectionProgress?.npcs_discovered ?? 0}</b></span><span>TITLES <b>{collectionProgress?.titles_unlocked.length ?? 0}</b></span></div>
+          <div className="collection-filters" aria-label="Filter inventory by card type">{inventoryCategories.map((category) => <button type="button" className={inventoryFilter === category.id ? "active" : ""} key={category.id} onClick={() => setInventoryFilter(category.id)}>{category.label}</button>)}</div>
+          <div className="rarity-progress-list">{rarityProgress.map(({ rarity, found, total, segments }) => <div className="rarity-progress" key={rarity} aria-label={`${rarity}: ${found} of ${total} discovered`}><span className={`rarity rarity-${rarity.toLowerCase()}`}>{rarity}</span><div className="rarity-segments" aria-hidden="true">{Array.from({ length: 10 }, (_, index) => <i className={index < segments ? `filled rarity-fill-${rarity.toLowerCase()}` : ""} key={index} />)}</div><small>{found}/{total}</small></div>)}</div>
+          {visibleInventory.length === 0 ? <p>No inventory items in this category.</p> : <ul>{visibleInventory.map((item) => <li key={item.id}><button type="button" className={`inventory-entry ${item.unlocked ? "unlocked" : "locked"}`} onClick={() => void showInventoryItem(item)}><span className={`rarity rarity-${item.rarity.toLowerCase()}`}>{item.rarity}</span><span className="inventory-entry-copy"><strong>{item.name}</strong><small>{item.type} · {item.unlocked ? `UNLOCKED${item.count > 1 ? ` ×${item.count}` : ""}` : "LOCKED"}</small></span><b aria-hidden="true">›</b></button></li>)}</ul>}
+        </section>
         <div className="profile-footer">PATH: {player.preferences.quest_duration_minutes} MIN <span>IDENTITY SAVED</span></div>
       </aside><div className="world-coordinate">RE:ALM <span>·</span> UNKNOWN REGION <span>·</span> DISCOVERY AWAITS</div>
     </section>}
+    {selectedInventoryItem && <div className="levelup-backdrop inventory-backdrop" role="dialog" aria-modal="true" aria-labelledby="inventory-item-title"><section className={`levelup-card inventory-detail ${selectedInventoryItem.unlocked ? "item-unlocked" : "item-locked"}`}><p>{selectedInventoryItem.unlocked ? "UNLOCKED CONTENT" : "LOCKED CONTENT"}</p><span className={`rarity rarity-${selectedInventoryItem.rarity.toLowerCase()}`}>{selectedInventoryItem.rarity} · {selectedInventoryItem.type}</span><h2 id="inventory-item-title">{selectedInventoryItem.name}</h2><dl><div><dt>DESCRIPTION</dt><dd>{selectedInventoryItem.description}</dd></div><div><dt>HOW OBTAINED</dt><dd>{selectedInventoryItem.how_obtained}{selectedInventoryItem.acquired_at ? ` · ${new Date(selectedInventoryItem.acquired_at).toLocaleDateString()}` : ""}</dd></div><div><dt>EFFECT</dt><dd>{String(selectedInventoryItem.effect.summary ?? "Adventure content added to your collection.")}</dd></div><div><dt>UNLOCKED STATE</dt><dd>{selectedInventoryItem.unlocked ? `UNLOCKED${selectedInventoryItem.count > 1 ? ` · OWNED ×${selectedInventoryItem.count}` : ""}` : "LOCKED"}</dd></div></dl><button className="primary-button" onClick={() => setSelectedInventoryItem(null)}><span>CLOSE</span><b>×</b></button></section></div>}
     {levelUp && <div className="levelup-backdrop" role="dialog" aria-modal="true" aria-labelledby="levelup-title"><section className="levelup-card"><p>{levelUp.questCompleted ? "QUEST CLEAR" : "PROGRESSION"}</p><h2 id="levelup-title">LEVEL UP</h2><div className="levelup-change">{String(levelUp.before).padStart(2, "0")} <span>→</span> {String(levelUp.after).padStart(2, "0")}</div><div className="levelup-reward">+{levelUp.xp} EXP</div><div className="levelup-stats">{Object.entries(levelUp.stats).map(([stat, count]) => <span key={stat}>{stat.toUpperCase()} <b>+{count}</b></span>)}</div><button className="primary-button" onClick={() => setLevelUp(null)}><span>CONTINUE</span><b>↗</b></button></section></div>}
     {summonStage && <div className="levelup-backdrop summon-backdrop" role="dialog" aria-modal="true" aria-labelledby="summon-title"><section className={`levelup-card summon-card ${summonResult ? `summon-${summonResult.content.rarity.toLowerCase()}` : ""}`}><p>{summonResult ? `${summonResult.content.rarity} · ${summonResult.content.category}` : "SUMMON SEQUENCE"}</p><h2 id="summon-title">{summonResult && summonStage !== "RARITY REVEAL" ? summonResult.content.name : summonError ? "SUMMON INTERRUPTED" : summonStage === "RARITY REVEAL" && summonResult ? summonResult.content.rarity : summonStage}</h2>{summonResult && summonStage !== "RARITY REVEAL" ? <><div className="summon-stage-label">{summonStage}</div><p className="summon-description">{summonResult.content.description}</p>{summonResult.duplicate ? <div className="levelup-reward">DUPLICATE · +{summonResult.duplicate_refund} AETHER</div> : <div className="levelup-reward">CONTENT UNLOCKED</div>}</> : summonError ? <p className="form-error" role="alert">{summonError}</p> : <div className="summon-energy"><span /><span /><span /></div>}{!summoning && <button className="primary-button" onClick={() => { setSummonStage(""); setSummonResult(null); setSummonError(""); }}><span>CONTINUE</span><b>→</b></button>}</section></div>}
     <footer className="site-footer"><span>RE:ALM <i>—</i> FIND YOUR WAY THROUGH.</span><span>AN OPEN WORLD, ONE STEP AT A TIME.</span></footer>
