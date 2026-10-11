@@ -21,6 +21,13 @@ class VerificationMethod(StrEnum):
     HUMAN_REVIEW = "human_review"
 
 
+class ProgressionEventType(StrEnum):
+    OBJECTIVE_COMPLETE = "OBJECTIVE_COMPLETE"
+    QUEST_COMPLETE = "QUEST_COMPLETE"
+    BONUS_OBJECTIVE = "BONUS_OBJECTIVE"
+    RARE_DISCOVERY = "RARE_DISCOVERY"
+
+
 class QuestStatus(StrEnum):
     DRAFT = "draft"
     AVAILABLE = "available"
@@ -106,6 +113,7 @@ class Player(BaseModel):
     archetype: Archetype = Archetype.EXPLORER
     level: int = Field(default=1, ge=1)
     experience: int = Field(default=0, ge=0)
+    total_experience: int = Field(default=0, ge=0)
     experience_to_next_level: int = 100
     aether: int = Field(default=0, ge=0)
     stats: PlayerStats = Field(default_factory=PlayerStats)
@@ -214,6 +222,18 @@ class Progress(BaseModel):
     level: int = Field(default=1, ge=1)
     experience: int = Field(default=0, ge=0)
     completed_quest_ids: list[str] = Field(default_factory=list)
+
+
+class ProgressionEvent(BaseModel):
+    id: str
+    player_id: str
+    event_type: ProgressionEventType
+    xp: int = Field(ge=0)
+    created_at: datetime
+    level_before: int = Field(ge=1)
+    level_after: int = Field(ge=1)
+    stat_increases: dict[str, int] = Field(default_factory=dict)
+    source_id: str | None = None
 
 
 class NPC(BaseModel):

@@ -19,8 +19,10 @@ from .contracts import (
     QuestGenerationContext,
     QuestGenerationRequest,
     QuestStatus,
+    ProgressionEventType,
 )
 from .game_master import QuestGenerationError, generate_quest
+from .progression import add_xp, calculate_next_level_xp
 from .verification import SelfVerification, VisionVerification
 
 
@@ -206,14 +208,88 @@ async def verify_objective(quest_id: str, objective_id: str, payload: dict,
         return APIResponse(data=result)
     attempt = await app.state.database.quest_attempts.find_one({"quest_id": quest_id, "player_id": x_player_id})
     progress = dict((attempt or {}).get("objective_progress", {}))
-    progress[objective_id] = True
+    already_verified = progress.get(objective_id, False)
+    rewards = []
+    if not already_verified:
+        attempt_id = (attempt or {}).get("id", quest_id)
+        rewards.append(await add_xp(app.state.database, x_player_id, f"objective:{attempt_id}:{objective_id}", ProgressionEventType.OBJECTIVE_COMPLETE, quest_id))
+        if objective.get("optional", False):
+            rewards.append(await add_xp(app.state.database, x_player_id, f"bonus:{attempt_id}:{objective_id}", ProgressionEventType.BONUS_OBJECTIVE, quest_id))
+        await app.state.database.quest_attempts.update_one(
+            {"quest_id": quest_id, "player_id": x_player_id},
+            {"$set": {f"objective_progress.{objective_id}": True}},
+        )
+        attempt = await app.state.database.quest_attempts.find_one({"quest_id": quest_id, "player_id": x_player_id})
+        progress = dict((attempt or {}).get("objective_progress", {}))
     required = [item["id"] for item in quest["objectives"] if not item.get("optional", False)]
     completed = all(progress.get(item_id) for item_id in required)
-    await app.state.database.quest_attempts.update_one({"quest_id": quest_id, "player_id": x_player_id}, {"$set": {"objective_progress": progress, **({"completed_at": datetime.now(timezone.utc).isoformat(), "status": "completed"} if completed else {})}})
     if completed:
-        await app.state.database.quests.update_one({"id": quest_id, "player_id": x_player_id}, {"$set": {"status": QuestStatus.COMPLETED.value}})
-        await app.state.database.players.update_one({"id": x_player_id}, {"$inc": {"experience": quest["xp_reward"], "aether": quest["aether_reward"]}})
-    return APIResponse(data={**result, "objective_progress": progress, "quest_completed": completed})
+        rewards.append(await add_xp(app.state.database, x_player_id, f"quest:{quest_id}", ProgressionEventType.QUEST_COMPLETE, quest_id))
+        await app.state.database.quest_attempts.update_one(
+            {"quest_id": quest_id, "player_id": x_player_id, "status": QuestStatus.ACTIVE.value},
+            {"$set": {"completed_at": datetime.now(timezone.utc).isoformat(), "status": QuestStatus.COMPLETED.value}},
+        )
+        completion = await app.state.database.quests.update_one(
+            {"id": quest_id, "player_id": x_player_id, "status": QuestStatus.ACTIVE.value},
+            {"$set": {"status": QuestStatus.COMPLETED.value}},
+        )
+        if completion.modified_count:
+            await app.state.database.players.update_one(
+                {"id": x_player_id},
+                {"$inc": {"aether": quest["aether_reward"]}, "$addToSet": {"progress.completed_quest_ids": quest_id}},
+            )
+    player_after = await app.state.database.players.find_one({"id": x_player_id}, {"level": 1, "experience": 1, "stats": 1})
+    after = int((player_after or {}).get("level", 1))
+    new_rewards = [item for item in rewards if not item.get("already_awarded")]
+    before = min((item["level_before"] for item in new_rewards), default=after)
+    stat_increases: dict[str, int] = {}
+    for reward in new_rewards:
+        for stat, count in reward.get("stat_increases", {}).items():
+            stat_increases[stat] = stat_increases.get(stat, 0) + count
+    xp_awarded = sum(item["xp"] for item in new_rewards)
+    return APIResponse(data={**result, "objective_progress": progress, "quest_completed": completed, "already_verified": already_verified,
+                             "xp_awarded": xp_awarded, "progression_events": rewards,
+                             "level_before": before, "level_after": after,
+                             "levels_gained": max(0, after - before), "stat_increases": stat_increases,
+                             "experience_after": int((player_after or {}).get("experience", 0))})
+
+
+@app.get("/api/progress", response_model=APIResponse, tags=["progression"])
+@app.get("/api/v1/progress", response_model=APIResponse, tags=["progression"], include_in_schema=False)
+async def get_progress(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    level = int(player.get("level", 1))
+    experience = int(player.get("experience", 0))
+    threshold = calculate_next_level_xp(level)
+    events = await app.state.database.progression_events.find({"player_id": x_player_id}).sort("created_at", -1).limit(20).to_list(length=20)
+    for event in events:
+        event.pop("_id", None)
+    return APIResponse(data={"level": level, "experience": experience, "experience_to_next_level": threshold,
+                             "progress_percent": min(100, round(experience * 100 / threshold)),
+                             "total_experience": int(player.get("total_experience", experience)),
+                             "stats": player.get("stats", {}),
+                             "completed_quest_ids": (player.get("progress") or {}).get("completed_quest_ids", []),
+                             "recent_events": events})
+
+
+@app.get("/api/progress/stats", response_model=APIResponse, tags=["progression"])
+@app.get("/api/v1/progress/stats", response_model=APIResponse, tags=["progression"], include_in_schema=False)
+async def get_progress_stats(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    summary = await app.state.database.progression_events.aggregate([
+        {"$match": {"player_id": x_player_id}},
+        {"$group": {"_id": "$event_type", "count": {"$sum": 1}, "xp": {"$sum": "$xp"}}},
+    ]).to_list(length=20)
+    discoveries = await app.state.database.discoveries.count_documents({"player_id": x_player_id})
+    progress = player.get("progress") or {}
+    return APIResponse(data={"level": player.get("level", 1), "total_experience": player.get("total_experience", player.get("experience", 0)),
+                             "completed_quests": len(progress.get("completed_quest_ids", [])), "discoveries": discoveries,
+                             "attributes": player.get("stats", {}),
+                             "reward_events": [{"event_type": row["_id"], "count": row["count"], "xp": row["xp"]} for row in summary]})
 
 
 @app.exception_handler(HTTPException)
