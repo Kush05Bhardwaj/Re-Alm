@@ -38,6 +38,8 @@ Quest objectives now award progression XP, quest clears grant a completion bonus
 
 Quest completion grants 30 Aether and records the transaction in the Aether ledger. Read ledger history at `/api/v1/aether/ledger`; future summon handlers should use the server-side balance-checked spend helper. See [Aether economy contracts](docs/api/contracts.md#aether-economy).
 
+Phase 7 adds server-side adventure summons: quest clears award 30 Aether, `/api/v1/summon` spends a configurable 30 Aether, and pulled content enters the player's collection with a gameplay effect. Duplicate pulls return configurable Aether refunds. Configure rates and refunds in `.env`; the default rarity rates are R 70%, SR 25%, SSR 4.5%, and UR 0.5%. Read [summon API contracts](docs/api/contracts.md#summons).
+
 For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
 
 ## Repository map

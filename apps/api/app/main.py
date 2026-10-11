@@ -21,11 +21,13 @@ from .contracts import (
     QuestStatus,
     ProgressionEventType,
     AetherTransaction,
+    SummonRequest,
 )
 from .game_master import QuestGenerationError, generate_quest
-from .economy import QUEST_COMPLETE_AETHER, earn_aether
+from .economy import InsufficientAether, QUEST_COMPLETE_AETHER, earn_aether
 from .progression import add_xp, calculate_next_level_xp
 from .verification import SelfVerification, VisionVerification
+from .summons import SummonConfigurationError, get_collection, get_summon_pool, perform_summon
 
 
 @asynccontextmanager
@@ -133,6 +135,7 @@ async def create_quest(
             "completed_quests": sum(1 for item in history_documents if item.get("status") == QuestStatus.COMPLETED.value),
         },
         discoveries=discoveries,
+        collection_effects=player.unlocks.quest_modifiers,
     )
     try:
         proposal = await generate_quest(context)
@@ -157,6 +160,37 @@ async def create_quest(
     )
     await app.state.database.quests.insert_one(quest.model_dump(mode="json"))
     return APIResponse(data=quest)
+
+
+@app.get("/api/summon/pool", response_model=APIResponse, tags=["summon"])
+@app.get("/api/v1/summon/pool", response_model=APIResponse, tags=["summon"], include_in_schema=False)
+async def summon_pool() -> APIResponse:
+    try:
+        return APIResponse(data=get_summon_pool())
+    except SummonConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/summon/collection", response_model=APIResponse, tags=["summon"])
+@app.get("/api/v1/summon/collection", response_model=APIResponse, tags=["summon"], include_in_schema=False)
+async def summon_collection(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    player = await app.state.database.players.find_one({"id": x_player_id}, {"_id": 1})
+    if player is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return APIResponse(data=await get_collection(app.state.database, x_player_id))
+
+
+@app.post("/api/summon", response_model=APIResponse, tags=["summon"])
+@app.post("/api/v1/summon", response_model=APIResponse, tags=["summon"], include_in_schema=False)
+async def summon(payload: SummonRequest, x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    try:
+        return APIResponse(data=await perform_summon(app.state.database, x_player_id, payload.request_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except InsufficientAether as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
+    except SummonConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/quest/current", response_model=APIResponse, tags=["quest"])

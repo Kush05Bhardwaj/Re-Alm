@@ -14,6 +14,22 @@ class Rarity(StrEnum):
     LEGENDARY = "legendary"
 
 
+class SummonCategory(StrEnum):
+    QUEST = "QUEST"
+    ABILITY = "ABILITY"
+    ENCOUNTER = "ENCOUNTER"
+    NPC = "NPC"
+    STORY = "STORY"
+    TITLE = "TITLE"
+
+
+class SummonRarity(StrEnum):
+    R = "R"
+    SR = "SR"
+    SSR = "SSR"
+    UR = "UR"
+
+
 class VerificationMethod(StrEnum):
     SELF_REPORTED = "self_reported"
     AI_REVIEW = "ai_review"
@@ -94,6 +110,11 @@ class PlayerStats(BaseModel):
     lck: int = Field(default=5, ge=0)
 
 
+class PlayerUnlocks(BaseModel):
+    quest_modifiers: list[str] = Field(default_factory=list)
+    titles: list[str] = Field(default_factory=list)
+
+
 class PlayerPreferences(BaseModel):
     interests: str = Field(default="", max_length=500)
     quest_duration_minutes: int = Field(default=30, ge=5, le=240)
@@ -125,6 +146,7 @@ class Player(BaseModel):
     stats: PlayerStats = Field(default_factory=PlayerStats)
     preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)
     progress: Progress | None = None
+    unlocks: PlayerUnlocks = Field(default_factory=PlayerUnlocks)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -190,6 +212,7 @@ class QuestGenerationContext(BaseModel):
     environment: QuestEnvironment = Field(default_factory=QuestEnvironment)
     progression: dict[str, Any] = Field(default_factory=dict)
     discoveries: list[dict[str, Any]] = Field(default_factory=list)
+    collection_effects: list[str] = Field(default_factory=list)
 
 
 class QuestAttempt(BaseModel):
@@ -209,12 +232,28 @@ class InventoryItem(BaseModel):
     rarity: Rarity = Rarity.COMMON
 
 
+class SummonRequest(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+class SummonContent(BaseModel):
+    id: str
+    name: str
+    category: SummonCategory
+    rarity: SummonRarity
+    description: str
+    effect: dict[str, Any]
+
+
 class Summon(BaseModel):
     id: str
     player_id: str
     entity_id: str
     acquired_at: datetime
-    rarity: Rarity
+    content: SummonContent
+    count: int = Field(default=1, ge=1)
+    first_attempt_id: str
+    summon_attempt_ids: list[str] = Field(default_factory=list)
 
 
 class Discovery(BaseModel):
