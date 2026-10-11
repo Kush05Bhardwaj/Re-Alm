@@ -2,13 +2,21 @@ export type Rarity = "common" | "uncommon" | "rare" | "epic" | "legendary";
 export type VerificationMethod = "self_reported" | "ai_review" | "server_validated" | "human_review";
 export type QuestStatus = "draft" | "available" | "active" | "completed" | "failed" | "abandoned";
 export type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
+export type SummonCategory = "QUEST" | "ABILITY" | "ENCOUNTER" | "NPC" | "STORY" | "TITLE";
+export type SummonRarity = "R" | "SR" | "SSR" | "UR";
 export type QuestCategory = "exploration" | "observation" | "discovery" | "mystery" | "photography" | "challenge" | "chaos" | "story";
 export type EnvironmentType = "unknown" | "indoor" | "urban" | "nature" | "home";
 export type WeatherType = "unknown" | "clear" | "rain" | "snow" | "hot" | "cold";
 export type DayPeriod = "unknown" | "morning" | "afternoon" | "evening" | "night";
 export type VerificationLevel = "self" | "location" | "vision" | "combined";
+export type ProgressionEventType = "OBJECTIVE_COMPLETE" | "QUEST_COMPLETE" | "BONUS_OBJECTIVE" | "RARE_DISCOVERY";
+export type AetherTransactionType = "AETHER_EARN" | "AETHER_SPEND" | "AETHER_REFUND";
 export interface GeoPoint { latitude: number; longitude: number }
 export interface VerificationResult { verified: boolean; method: VerificationLevel; message: string; confidence?: number }
+export interface ProgressionEvent { id: string; player_id: string; event_type: ProgressionEventType; xp: number; created_at: string; level_before: number; level_after: number; stat_increases: Record<string, number>; source_id?: string | null }
+export interface ProgressSnapshot { level: number; experience: number; experience_to_next_level: number; progress_percent: number; total_experience: number; stats: PlayerStats; completed_quest_ids: string[]; recent_events: ProgressionEvent[] }
+export interface ProgressStats { level: number; total_experience: number; completed_quests: number; discoveries: number; attributes: PlayerStats; reward_events: { event_type: ProgressionEventType; count: number; xp: number }[] }
+export interface AetherTransaction { id: string; player_id: string; transaction_type: AetherTransactionType; amount: number; source_id?: string | null; created_at: string; status: "pending" | "applied" | "rejected"; balance_before?: number | null; balance_after?: number | null }
 
 export interface PlayerStats {
   str: number;
@@ -40,10 +48,12 @@ export interface Player {
   archetype: Archetype;
   level: number;
   experience: number;
+  total_experience: number;
   experience_to_next_level: number;
   aether: number;
   stats: PlayerStats;
   preferences: PlayerPreferences;
+  unlocks: { quest_modifiers: string[]; titles: string[] };
   progress?: Progress | null;
 }
 export interface Objective {
@@ -85,7 +95,12 @@ export interface QuestAttempt {
   objective_progress: Record<string, boolean>;
 }
 export interface InventoryItem { id: string; item_id: string; quantity: number; rarity: Rarity }
-export interface Summon { id: string; player_id: string; entity_id: string; acquired_at: string; rarity: Rarity }
+export interface SummonContent { id: string; name: string; category: SummonCategory; rarity: SummonRarity; description: string; effect: Record<string, unknown> }
+export interface Summon { id: string; player_id: string; entity_id: string; content: SummonContent; acquired_at: string; count: number; first_attempt_id: string; summon_attempt_ids: string[] }
+export interface SummonPool { cost: number; rates: Record<SummonRarity, number>; duplicate_refunds: Record<SummonRarity, number>; categories: SummonCategory[]; pool: SummonContent[] }
+export interface SummonResult { attempt_id: string; content: SummonContent; duplicate: boolean; duplicate_refund: number; cost: number; aether_balance: number; collection_count: number }
+export interface InventoryEntry { id: string; name: string; rarity: SummonRarity; type: SummonCategory; description: string; how_obtained: string; effect: Record<string, unknown>; unlocked: boolean; count: number; acquired_at?: string | null }
+export interface CollectionProgress { total_discovered: number; total_available: number; rarity_discovered: Record<SummonRarity, number>; rarity_available: Record<SummonRarity, number>; quest_types_discovered: QuestCategory[]; npcs_discovered: number; titles_unlocked: string[] }
 export interface Discovery { id: string; player_id: string; subject_id: string; discovered_at: string }
 export interface Progress { level: number; experience: number; completed_quest_ids: string[] }
 export interface NPC { id: string; name: string; description: string; location_id?: string | null }

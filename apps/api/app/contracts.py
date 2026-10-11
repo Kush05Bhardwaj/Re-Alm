@@ -14,11 +14,40 @@ class Rarity(StrEnum):
     LEGENDARY = "legendary"
 
 
+class SummonCategory(StrEnum):
+    QUEST = "QUEST"
+    ABILITY = "ABILITY"
+    ENCOUNTER = "ENCOUNTER"
+    NPC = "NPC"
+    STORY = "STORY"
+    TITLE = "TITLE"
+
+
+class SummonRarity(StrEnum):
+    R = "R"
+    SR = "SR"
+    SSR = "SSR"
+    UR = "UR"
+
+
 class VerificationMethod(StrEnum):
     SELF_REPORTED = "self_reported"
     AI_REVIEW = "ai_review"
     SERVER_VALIDATED = "server_validated"
     HUMAN_REVIEW = "human_review"
+
+
+class ProgressionEventType(StrEnum):
+    OBJECTIVE_COMPLETE = "OBJECTIVE_COMPLETE"
+    QUEST_COMPLETE = "QUEST_COMPLETE"
+    BONUS_OBJECTIVE = "BONUS_OBJECTIVE"
+    RARE_DISCOVERY = "RARE_DISCOVERY"
+
+
+class AetherTransactionType(StrEnum):
+    AETHER_EARN = "AETHER_EARN"
+    AETHER_SPEND = "AETHER_SPEND"
+    AETHER_REFUND = "AETHER_REFUND"
 
 
 class QuestStatus(StrEnum):
@@ -81,6 +110,11 @@ class PlayerStats(BaseModel):
     lck: int = Field(default=5, ge=0)
 
 
+class PlayerUnlocks(BaseModel):
+    quest_modifiers: list[str] = Field(default_factory=list)
+    titles: list[str] = Field(default_factory=list)
+
+
 class PlayerPreferences(BaseModel):
     interests: str = Field(default="", max_length=500)
     quest_duration_minutes: int = Field(default=30, ge=5, le=240)
@@ -106,11 +140,13 @@ class Player(BaseModel):
     archetype: Archetype = Archetype.EXPLORER
     level: int = Field(default=1, ge=1)
     experience: int = Field(default=0, ge=0)
+    total_experience: int = Field(default=0, ge=0)
     experience_to_next_level: int = 100
     aether: int = Field(default=0, ge=0)
     stats: PlayerStats = Field(default_factory=PlayerStats)
     preferences: PlayerPreferences = Field(default_factory=PlayerPreferences)
     progress: Progress | None = None
+    unlocks: PlayerUnlocks = Field(default_factory=PlayerUnlocks)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -176,6 +212,7 @@ class QuestGenerationContext(BaseModel):
     environment: QuestEnvironment = Field(default_factory=QuestEnvironment)
     progression: dict[str, Any] = Field(default_factory=dict)
     discoveries: list[dict[str, Any]] = Field(default_factory=list)
+    collection_effects: list[str] = Field(default_factory=list)
 
 
 class QuestAttempt(BaseModel):
@@ -195,12 +232,51 @@ class InventoryItem(BaseModel):
     rarity: Rarity = Rarity.COMMON
 
 
+class SummonRequest(BaseModel):
+    request_id: str = Field(min_length=8, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+
+
+class SummonContent(BaseModel):
+    id: str
+    name: str
+    category: SummonCategory
+    rarity: SummonRarity
+    description: str
+    effect: dict[str, Any]
+
+
 class Summon(BaseModel):
     id: str
     player_id: str
     entity_id: str
     acquired_at: datetime
-    rarity: Rarity
+    content: SummonContent
+    count: int = Field(default=1, ge=1)
+    first_attempt_id: str
+    summon_attempt_ids: list[str] = Field(default_factory=list)
+
+
+class InventoryEntry(BaseModel):
+    id: str
+    name: str
+    rarity: SummonRarity
+    type: SummonCategory
+    description: str
+    how_obtained: str
+    effect: dict[str, Any]
+    unlocked: bool
+    count: int = Field(default=0, ge=0)
+    acquired_at: str | None = None
+
+
+class CollectionProgress(BaseModel):
+    total_discovered: int = Field(ge=0)
+    total_available: int = Field(ge=0)
+    rarity_discovered: dict[str, int] = Field(default_factory=dict)
+    rarity_available: dict[str, int] = Field(default_factory=dict)
+    quest_types_discovered: list[str] = Field(default_factory=list)
+    npcs_discovered: int = Field(ge=0)
+    titles_unlocked: list[str] = Field(default_factory=list)
 
 
 class Discovery(BaseModel):
@@ -214,6 +290,30 @@ class Progress(BaseModel):
     level: int = Field(default=1, ge=1)
     experience: int = Field(default=0, ge=0)
     completed_quest_ids: list[str] = Field(default_factory=list)
+
+
+class ProgressionEvent(BaseModel):
+    id: str
+    player_id: str
+    event_type: ProgressionEventType
+    xp: int = Field(ge=0)
+    created_at: datetime
+    level_before: int = Field(ge=1)
+    level_after: int = Field(ge=1)
+    stat_increases: dict[str, int] = Field(default_factory=dict)
+    source_id: str | None = None
+
+
+class AetherTransaction(BaseModel):
+    id: str
+    player_id: str
+    transaction_type: AetherTransactionType
+    amount: int = Field(ge=1)
+    source_id: str | None = None
+    created_at: datetime
+    status: str = "applied"
+    balance_before: int | None = Field(default=None, ge=0)
+    balance_after: int | None = Field(default=None, ge=0)
 
 
 class NPC(BaseModel):

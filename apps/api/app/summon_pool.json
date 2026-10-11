@@ -1,0 +1,10 @@
+[
+  {"id":"quest-first-light","name":"First Light Route","category":"QUEST","rarity":"R","description":"A gentle invitation to notice the start of a new day.","effect":{"kind":"quest_modifier","cue":"Offer optional, safe morning observation quests."}},
+  {"id":"encounter-small-wonders","name":"Small Wonders","category":"ENCOUNTER","rarity":"R","description":"A quiet encounter with an overlooked detail.","effect":{"kind":"quest_modifier","cue":"Favor safe quests about noticing overlooked details."}},
+  {"id":"npc-mapkeeper","name":"The Mapkeeper","category":"NPC","rarity":"SR","description":"A recurring guide who leaves clues in familiar surroundings.","effect":{"kind":"quest_modifier","cue":"Use a fictional Mapkeeper voice to frame a clue-based quest; never require finding or approaching a real person."}},
+  {"id":"ability-steady-gaze","name":"Steady Gaze","category":"ABILITY","rarity":"SR","description":"A lasting boost to perception.","effect":{"kind":"stat_bonus","stat":"int","amount":1}},
+  {"id":"story-thread-of-blue","name":"A Thread of Blue","category":"STORY","rarity":"SSR","description":"An ongoing story told through safe, everyday observations.","effect":{"kind":"quest_modifier","cue":"Continue the optional Thread of Blue story through safe observation quests."}},
+  {"id":"quest-night-watch","name":"The Night Watch","category":"QUEST","rarity":"SSR","description":"Unlocks optional evening exploration quests that can be completed in safe, familiar, well-lit places.","effect":{"kind":"quest_modifier","cue":"Unlock optional evening exploration quests in safe, familiar, well-lit places; always offer an indoor alternative."}},
+  {"id":"title-worldlistener","name":"World Listener","category":"TITLE","rarity":"UR","description":"A title for players who listen closely to their surroundings.","effect":{"kind":"title_unlock","title":"World Listener"}},
+  {"id":"ability-lucky-find","name":"Lucky Find","category":"ABILITY","rarity":"UR","description":"A lasting boost to fortune.","effect":{"kind":"stat_bonus","stat":"lck","amount":1}}
+]
