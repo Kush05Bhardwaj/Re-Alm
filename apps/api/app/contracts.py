@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -103,11 +104,11 @@ class DayPeriod(StrEnum):
 
 
 class PlayerStats(BaseModel):
-    str: int = Field(default=5, ge=0)
-    agi: int = Field(default=5, ge=0)
-    int: int = Field(default=5, ge=0)
-    vit: int = Field(default=5, ge=0)
-    lck: int = Field(default=5, ge=0)
+    str: builtins.int = Field(default=5, ge=0)
+    agi: builtins.int = Field(default=5, ge=0)
+    int: builtins.int = Field(default=5, ge=0)
+    vit: builtins.int = Field(default=5, ge=0)
+    lck: builtins.int = Field(default=5, ge=0)
 
 
 class PlayerUnlocks(BaseModel):
