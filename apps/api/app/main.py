@@ -21,6 +21,7 @@ from .contracts import (
     QuestStatus,
 )
 from .game_master import QuestGenerationError, generate_quest
+from .verification import SelfVerification, VisionVerification
 
 
 @asynccontextmanager
@@ -158,13 +159,61 @@ async def create_quest(
 @app.get("/api/v1/quest/current", response_model=APIResponse, tags=["quest"], include_in_schema=False)
 async def get_current_quest(x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
     document = await app.state.database.quests.find_one(
-        {"player_id": x_player_id, "status": QuestStatus.AVAILABLE.value},
+        {"player_id": x_player_id, "status": {"$in": [QuestStatus.AVAILABLE.value, QuestStatus.ACTIVE.value]}},
         sort=[("created_at", -1)],
     )
     if document is None:
         return APIResponse(data=None)
     document.pop("_id", None)
     return APIResponse(data=Quest.model_validate(document))
+
+
+@app.post("/api/quest/{quest_id}/start", response_model=APIResponse, tags=["quest"])
+@app.post("/api/v1/quest/{quest_id}/start", response_model=APIResponse, tags=["quest"], include_in_schema=False)
+async def start_quest(quest_id: str, x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    quest = await app.state.database.quests.find_one({"id": quest_id, "player_id": x_player_id})
+    if quest is None:
+        raise HTTPException(status_code=404, detail="Quest not found")
+    if quest["status"] not in {QuestStatus.AVAILABLE.value, QuestStatus.ACTIVE.value}:
+        raise HTTPException(status_code=409, detail="Quest is no longer available")
+    now = datetime.now(timezone.utc)
+    await app.state.database.quests.update_one({"id": quest_id, "player_id": x_player_id}, {"$set": {"status": QuestStatus.ACTIVE.value}})
+    attempt = await app.state.database.quest_attempts.find_one({"quest_id": quest_id, "player_id": x_player_id})
+    if attempt is None:
+        attempt = {"id": str(uuid4()), "quest_id": quest_id, "player_id": x_player_id,
+                   "status": QuestStatus.ACTIVE.value, "started_at": now.isoformat(), "objective_progress": {}}
+        await app.state.database.quest_attempts.insert_one(attempt)
+    return APIResponse(data={"quest_id": quest_id, "status": "active", "started_at": attempt["started_at"]})
+
+
+@app.post("/api/quest/{quest_id}/objectives/{objective_id}/verify", response_model=APIResponse, tags=["quest"])
+@app.post("/api/v1/quest/{quest_id}/objectives/{objective_id}/verify", response_model=APIResponse, tags=["quest"], include_in_schema=False)
+async def verify_objective(quest_id: str, objective_id: str, payload: dict,
+                           x_player_id: str = Header(..., alias="X-Player-ID")) -> APIResponse:
+    quest = await app.state.database.quests.find_one({"id": quest_id, "player_id": x_player_id, "status": QuestStatus.ACTIVE.value})
+    if quest is None:
+        raise HTTPException(status_code=404, detail="Active quest not found")
+    objective = next((item for item in quest["objectives"] if item["id"] == objective_id), None)
+    if objective is None:
+        raise HTTPException(status_code=404, detail="Objective not found")
+    if objective.get("verification") == "ai_review":
+        result = await VisionVerification().verify(image_base64=payload.get("image_base64", ""), objective=objective["description"])
+    elif objective.get("verification") == "self_reported":
+        result = await SelfVerification().verify(confirmed=payload.get("confirmed") is True)
+    else:
+        raise HTTPException(status_code=422, detail="This verification method is not available yet")
+    if not result["verified"]:
+        return APIResponse(data=result)
+    attempt = await app.state.database.quest_attempts.find_one({"quest_id": quest_id, "player_id": x_player_id})
+    progress = dict((attempt or {}).get("objective_progress", {}))
+    progress[objective_id] = True
+    required = [item["id"] for item in quest["objectives"] if not item.get("optional", False)]
+    completed = all(progress.get(item_id) for item_id in required)
+    await app.state.database.quest_attempts.update_one({"quest_id": quest_id, "player_id": x_player_id}, {"$set": {"objective_progress": progress, **({"completed_at": datetime.now(timezone.utc).isoformat(), "status": "completed"} if completed else {})}})
+    if completed:
+        await app.state.database.quests.update_one({"id": quest_id, "player_id": x_player_id}, {"$set": {"status": QuestStatus.COMPLETED.value}})
+        await app.state.database.players.update_one({"id": x_player_id}, {"$inc": {"experience": quest["xp_reward"], "aether": quest["aether_reward"]}})
+    return APIResponse(data={**result, "objective_progress": progress, "quest_completed": completed})
 
 
 @app.exception_handler(HTTPException)
