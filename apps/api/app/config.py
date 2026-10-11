@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "gemma3:4b"
     vision_model: str = ""
+    summon_cost: int = 30
+    summon_rates: str = '{"R":70,"SR":25,"SSR":4.5,"UR":0.5}'
+    summon_duplicate_refunds: str = '{"R":5,"SR":15,"SSR":60,"UR":200}'
 
     model_config = SettingsConfigDict(env_file="../../.env", extra="ignore")
 

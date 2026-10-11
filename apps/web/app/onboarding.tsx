@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { APIResponse, EnvironmentType, Player, Quest } from "@realm/types";
+import type { APIResponse, EnvironmentType, Player, Quest, Summon, SummonPool, SummonResult } from "@realm/types";
 import { SelfVerification, VisionVerification } from "./verification";
 
 type ProgressResult = { quest_completed?: boolean; xp_awarded?: number; level_before?: number; level_after?: number; levels_gained?: number; stat_increases?: Record<string, number>; objective_progress?: Record<string, boolean> };
@@ -46,6 +46,18 @@ export default function Onboarding() {
   const [verificationMessage, setVerificationMessage] = useState("");
   const [verifying, setVerifying] = useState("");
   const [levelUp, setLevelUp] = useState<{ before: number; after: number; xp: number; stats: Record<string, number>; questCompleted: boolean } | null>(null);
+  const [summonPool, setSummonPool] = useState<SummonPool | null>(null);
+  const [collection, setCollection] = useState<Summon[]>([]);
+  const [summonStage, setSummonStage] = useState("");
+  const [summonResult, setSummonResult] = useState<SummonResult | null>(null);
+  const [summonError, setSummonError] = useState("");
+  const [summoning, setSummoning] = useState(false);
+
+  useEffect(() => {
+    void fetch(`${apiBase}/api/summon/pool`).then((response) => response.json()).then((body: APIResponse<SummonPool>) => {
+      if (body.data) setSummonPool(body.data);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const first = window.setTimeout(() => setBootStage(1), 650);
@@ -56,6 +68,7 @@ export default function Onboarding() {
         try {
           const currentPlayer = await requestPlayer("/api/player/me", undefined, id);
           setPlayer(currentPlayer);
+          void loadCollection(id);
           try {
             const currentResponse = await fetch(`${apiBase}/api/quest/current`, { headers: { "X-Player-ID": id } });
             const currentBody = (await currentResponse.json()) as APIResponse<Quest>;
@@ -88,6 +101,48 @@ export default function Onboarding() {
       setError(cause instanceof Error ? cause.message : "Connection to the system failed.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function loadCollection(id: string) {
+    try {
+      const response = await fetch(`${apiBase}/api/summon/collection`, { headers: { "X-Player-ID": id } });
+      const body = await response.json() as APIResponse<Summon[]>;
+      if (response.ok && body.data) setCollection(body.data);
+    } catch { /* Collection loading does not block the player profile. */ }
+  }
+
+  async function summon() {
+    if (!player || !summonPool || summoning) return;
+    setSummoning(true);
+    setSummonError("");
+    setSummonResult(null);
+    setSummonStage("SYSTEM ACCESS");
+    const pause = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    try {
+      await pause(550);
+      setSummonStage("ENERGY BUILDUP");
+      await pause(700);
+      const response = await fetch(`${apiBase}/api/summon`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Player-ID": player.id },
+        body: JSON.stringify({ request_id: window.crypto.randomUUID() }),
+      });
+      const body = await response.json() as APIResponse<SummonResult>;
+      if (!response.ok || !body.data) throw new Error(body.error?.message ?? "Summoning failed.");
+      setSummonResult(body.data);
+      setSummonStage("RARITY REVEAL");
+      await pause(650);
+      setSummonStage("CONTENT REVEAL");
+      const updatedPlayer = await requestPlayer("/api/player/me", undefined, player.id);
+      setPlayer(updatedPlayer);
+      await loadCollection(player.id);
+      setSummonStage("REWARD RECEIVED");
+    } catch (cause) {
+      setSummonError(cause instanceof Error ? cause.message : "Summoning failed.");
+      try { setPlayer(await requestPlayer("/api/player/me", undefined, player.id)); } catch { /* Keep the displayed profile if refresh is unavailable. */ }
+    } finally {
+      setSummoning(false);
     }
   }
 
@@ -240,10 +295,13 @@ export default function Onboarding() {
         <div className="experience-block"><div className="exp-label"><span>EXP</span><span>{player.experience} <i>/</i> {player.experience_to_next_level}</span></div><div className="exp-track"><span style={{ width: `${Math.min(100, (player.experience / player.experience_to_next_level) * 100)}%` }} /></div></div>
         <div className="profile-meta"><div><span className="meta-label">AETHER</span><strong className="aether-value"><i>✦</i> {player.aether}</strong></div><div><span className="meta-label">CLASS</span><strong>{player.archetype.charAt(0).toUpperCase() + player.archetype.slice(1)}</strong></div></div>
         <div className="stats-block"><div className="stats-title">BASE ATTRIBUTES <span>01</span></div><div className="stats-grid">{([["STR", player.stats.str], ["AGI", player.stats.agi], ["INT", player.stats.int], ["VIT", player.stats.vit], ["LCK", player.stats.lck]] as const).map(([label, value]) => <div className="stat" key={label}><span>{label}</span><b>{String(value).padStart(2, "0")}</b></div>)}</div></div>
+        {summonPool && <section className="summon-panel"><div className="stats-title">SYSTEM SUMMON <span>{summonPool.cost} AETHER</span></div><p>Summon an adventure that changes the paths ahead.</p><button className="primary-button summon-button" onClick={() => void summon()} disabled={summoning || player.aether < summonPool.cost}><span>{summoning ? "CHANNELING..." : "SUMMON CONTENT"}</span><b>✦</b></button>{player.aether < summonPool.cost && <small>Complete quests to earn more Aether.</small>}{summonError && <p className="form-error" role="alert">{summonError}</p>}</section>}
+        <section className="collection-panel"><div className="stats-title">COLLECTION <span>{collection.length} UNLOCKS</span></div>{collection.length === 0 ? <p>Adventure content you summon will appear here.</p> : <ul>{collection.map((item) => <li key={item.id}><span className={`rarity rarity-${item.content.rarity.toLowerCase()}`}>{item.content.rarity}</span><div><strong>{item.content.name}</strong><small>{item.content.category} · {item.count > 1 ? `×${item.count}` : item.content.description}</small></div></li>)}</ul>}</section>
         <div className="profile-footer">PATH: {player.preferences.quest_duration_minutes} MIN <span>IDENTITY SAVED</span></div>
       </aside><div className="world-coordinate">RE:ALM <span>·</span> UNKNOWN REGION <span>·</span> DISCOVERY AWAITS</div>
     </section>}
     {levelUp && <div className="levelup-backdrop" role="dialog" aria-modal="true" aria-labelledby="levelup-title"><section className="levelup-card"><p>{levelUp.questCompleted ? "QUEST CLEAR" : "PROGRESSION"}</p><h2 id="levelup-title">LEVEL UP</h2><div className="levelup-change">{String(levelUp.before).padStart(2, "0")} <span>→</span> {String(levelUp.after).padStart(2, "0")}</div><div className="levelup-reward">+{levelUp.xp} EXP</div><div className="levelup-stats">{Object.entries(levelUp.stats).map(([stat, count]) => <span key={stat}>{stat.toUpperCase()} <b>+{count}</b></span>)}</div><button className="primary-button" onClick={() => setLevelUp(null)}><span>CONTINUE</span><b>↗</b></button></section></div>}
+    {summonStage && <div className="levelup-backdrop summon-backdrop" role="dialog" aria-modal="true" aria-labelledby="summon-title"><section className={`levelup-card summon-card ${summonResult ? `summon-${summonResult.content.rarity.toLowerCase()}` : ""}`}><p>{summonResult ? `${summonResult.content.rarity} · ${summonResult.content.category}` : "SUMMON SEQUENCE"}</p><h2 id="summon-title">{summonResult && summonStage !== "RARITY REVEAL" ? summonResult.content.name : summonError ? "SUMMON INTERRUPTED" : summonStage === "RARITY REVEAL" && summonResult ? summonResult.content.rarity : summonStage}</h2>{summonResult && summonStage !== "RARITY REVEAL" ? <><div className="summon-stage-label">{summonStage}</div><p className="summon-description">{summonResult.content.description}</p>{summonResult.duplicate ? <div className="levelup-reward">DUPLICATE · +{summonResult.duplicate_refund} AETHER</div> : <div className="levelup-reward">CONTENT UNLOCKED</div>}</> : summonError ? <p className="form-error" role="alert">{summonError}</p> : <div className="summon-energy"><span /><span /><span /></div>}{!summoning && <button className="primary-button" onClick={() => { setSummonStage(""); setSummonResult(null); setSummonError(""); }}><span>CONTINUE</span><b>→</b></button>}</section></div>}
     <footer className="site-footer"><span>RE:ALM <i>—</i> FIND YOUR WAY THROUGH.</span><span>AN OPEN WORLD, ONE STEP AT A TIME.</span></footer>
   </main>;
 }
