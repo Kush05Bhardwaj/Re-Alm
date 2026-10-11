@@ -1,68 +1,167 @@
-# Re-Alm# RE — Realm Engine
+# RE:ALM — Realm Engine
 
-RE is an AI-guided game world. This repository contains a Next.js and TypeScript web app, a versioned FastAPI service, MongoDB persistence, local Ollama/Gemma integration, and shared domain contracts. Phase 1 player setup and the Phase 2 AI Game Master quest loop are implemented.
+RE:ALM is a real-world RPG prototype that turns safe, everyday observations into quests, progression, and collectible adventure content. The player profile and game state live in MongoDB; the web client talks to a FastAPI service that owns quest validation, rewards, summons, and inventory.
+
+## What works today
+
+- Create a player profile with an archetype, interests, and preferred quest duration.
+- Generate optional quests from player context with the local Game Master. Unsafe or invalid model output is rejected; a small set of reviewed fallback quests keeps the loop usable if the local model is unavailable.
+- Start quests and complete objectives through self-confirmation or image review. Browser geolocation helpers make one-time checks; continuous routes and coordinates are not stored.
+- Award XP, level-ups, stat increases, and 30 Aether for a completed quest.
+- Spend Aether on server-controlled summons. New content and duplicate refunds are recorded in the ledger and affect the player's collection or future gameplay.
+- Browse inventory, item details, rarity progress, and collection discoveries in a responsive web interface.
 
 ## Stack
 
-- Web: Next.js App Router, React, TypeScript, Tailwind CSS, PWA manifest foundation
-- API: FastAPI, Python 3.12+, Pydantic
-- Data: MongoDB, with MongoDB Atlas for shared environments and Compose for local development
-- AI: Gemma through Ollama for local development
-- Workspace: pnpm monorepo
+- **Web:** Next.js 15, React 19, TypeScript, Tailwind CSS
+- **API:** FastAPI, Pydantic, Python
+- **Database:** MongoDB, accessed asynchronously through Motor
+- **Local AI:** Ollama; the Game Master model is configurable
+- **Workspace:** pnpm monorepo
 
-## Quick start
+## Run locally
 
-Prerequisites: Node.js 20+, pnpm 9+, Python 3.12+, and Docker Compose.
+### Requirements
+
+- Node.js 20 or newer and pnpm 9
+- Python 3.12 or newer
+- Docker with Compose, or a local MongoDB installation
+- Ollama is optional for startup. It enables model-generated quests and photo review; safe fallback quests are available when the Game Master model cannot respond.
+
+### 1. Configure services
+
+From the repository root, create your local environment file and start MongoDB and Ollama:
 
 ```powershell
 Copy-Item .env.example .env
 docker compose up -d mongo ollama
-docker compose exec ollama ollama pull gemma3:4b
-pnpm install
-pnpm dev:web
 ```
 
-In a second terminal, start the API:
+Pull the model named by `OLLAMA_MODEL` in `.env` (the example uses `gemma3:4b`):
+
+```powershell
+docker compose exec ollama ollama pull gemma3:4b
+```
+
+If Ollama is installed directly on your computer, use `ollama pull gemma3:4b` instead. Set `OLLAMA_BASE_URL` to the address reachable by the API. For photo review, set `VISION_MODEL` to an Ollama model that supports image input. The Game Master and vision models can be configured separately.
+
+### 2. Install web dependencies
+
+```powershell
+pnpm install
+```
+
+### 3. Start the API
+
+In a second terminal, from the repository root:
 
 ```powershell
 cd apps/api
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; interactive API docs are at `http://localhost:8000/docs`. Player setup is under `/api/v1/player`, and `POST /api/v1/quest/generate` asks Gemma for a validated, personalized quest. Quests can be started and self or image verified; configure `VISION_MODEL` to a vision capable Ollama model for photo review. Browser location verification is a one-shot check and does not store coordinates or routes. The active generated quest path currently requests self verification by the Game Master. See [API contracts](docs/api/contracts.md) for verification endpoints, safeguards, and limits. Mongo and AI readiness checks are `/api/v1/health/database` and `/api/v1/health/ai`. API startup does not require dependencies to be online; those endpoints report dependency readiness.
+For macOS or Linux, activate the virtual environment with `source .venv/bin/activate`.
 
-Quest objectives now award progression XP, quest clears grant a completion bonus, and every level adds one random attribute point. XP carries forward using a threshold of `100 × current level`. Progress snapshots and aggregates are available at `/api/v1/progress` and `/api/v1/progress/stats`; see [progression contracts](docs/api/contracts.md#progression) for event values.
+### 4. Start the web app
 
-Quest completion grants 30 Aether and records the transaction in the Aether ledger. Read ledger history at `/api/v1/aether/ledger`; future summon handlers should use the server-side balance-checked spend helper. See [Aether economy contracts](docs/api/contracts.md#aether-economy).
+In another terminal, from the repository root:
 
-Phase 7 adds server-side adventure summons: quest clears award 30 Aether, `/api/v1/summon` spends a configurable 30 Aether, and pulled content enters the player's collection with a gameplay effect. Duplicate pulls return configurable Aether refunds. Configure rates and refunds in `.env`; the default rarity rates are R 70%, SR 25%, SSR 4.5%, and UR 0.5%. Read [summon API contracts](docs/api/contracts.md#summons).
+```powershell
+pnpm dev:web
+```
 
-Phase 8 adds a player inventory and collection view. `GET /api/v1/inventory` lists unlocked and locked adventure cards; `/api/v1/inventory/{id}` returns item detail. `GET /api/v1/collection/progress` summarizes discovered content, rarity completion, completed quest categories, NPC cards, and titles. See [inventory and collection contracts](docs/api/contracts.md#inventory-and-collection).
+Open [http://localhost:3000](http://localhost:3000). Use `localhost` consistently for the web app; the example API CORS setting allows `http://localhost:3000`. If you use a different web origin, add it to `API_CORS_ORIGINS` in `.env` and restart the API.
 
-For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
+The API docs are at [http://localhost:8000/docs](http://localhost:8000/docs). Useful readiness endpoints:
+
+- `GET /api/v1/health` — API process
+- `GET /api/v1/health/database` — MongoDB connection
+- `GET /api/v1/health/ai` — configured Ollama model
+
+The API can start while MongoDB or Ollama is unavailable; the readiness endpoints report whether each dependency is usable.
+
+### Run the API in Compose instead
+
+Compose can build and start the API, MongoDB, and Ollama together:
+
+```powershell
+docker compose up --build
+```
+
+The web client is not part of Compose, so install dependencies and run `pnpm dev:web` on the host as above. The first Ollama model download may take a while.
+
+## API overview
+
+Player-specific endpoints expect the `X-Player-ID` header returned when the profile is created. The server owns authoritative progression, Aether balances, summon costs, and random content selection.
+
+| Area | Routes |
+| --- | --- |
+| Player | `POST /api/v1/player/create`, `GET /api/v1/player/me`, `PATCH /api/v1/player/profile` |
+| Quests | `POST /api/v1/quest/generate`, `GET /api/v1/quest/current`, `POST /api/v1/quest/{quest_id}/start` |
+| Objective verification | `POST /api/v1/quest/{quest_id}/objectives/{objective_id}/verify` |
+| Progression | `GET /api/v1/progress`, `GET /api/v1/progress/stats` |
+| Aether | `GET /api/v1/aether/ledger` |
+| Summons | `GET /api/v1/summon/pool`, `POST /api/v1/summon`, `GET /api/v1/summon/collection` |
+| Inventory | `GET /api/v1/inventory`, `GET /api/v1/inventory/{id}`, `GET /api/v1/collection/progress` |
+
+## Configuration
+
+Copy `.env.example` to `.env` and keep that file private. Common settings:
+
+| Variable | Purpose | Example default |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_BASE_URL` | API base URL used by the web client | `http://localhost:8000/api/v1` |
+| `API_CORS_ORIGINS` | Comma-separated allowed browser origins | `http://localhost:3000` |
+| `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
+| `MONGODB_DATABASE` | Database name | `realm` |
+| `OLLAMA_BASE_URL` | Ollama address reachable by the API | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Game Master model tag | `gemma3:4b` |
+| `VISION_MODEL` | Optional image-capable model for photo checks | `gemma3:4b` |
+| `SUMMON_COST` | Server-side Aether cost per summon | `30` |
+| `SUMMON_RATES` | Server-side rarity weights; must total 100 | R 70, SR 25, SSR 4.5, UR 0.5 |
+| `SUMMON_DUPLICATE_REFUNDS` | Aether refund by duplicate rarity | R 5, SR 15, SSR 60, UR 200 |
+
+For MongoDB Atlas, set `MONGODB_URI` to the Atlas connection string and do not start the local MongoDB service. Within Compose, service hostnames are configured automatically for the API container.
+
+## Verification and safety
+
+Quests are optional and must be safe to complete in an ordinary setting. Model output is untrusted and checked on the server for schema, duration, difficulty, rewards, duplication, and unsafe instructions. The client never decides whether XP or Aether was earned.
+
+Self-confirmation supports subjective objectives. Photo review can assess visible evidence, but cannot prove location, time, identity, or events outside the image. Geolocation checks are requested only for a specific check; continuous route tracking is not used. Combined GPS, image, time, and quest-state verification remains future work. See [API contracts](docs/api/contracts.md) for implementation details and limits.
 
 ## Repository map
 
 ```text
-apps/web       Next.js client
-apps/api       FastAPI service and Pydantic contracts
+apps/web       Next.js client and responsive game UI
+apps/api       FastAPI service, game rules, and persistence
 packages/types Shared TypeScript contracts
 packages/config Shared configuration notes
-packages/ui    Shared UI primitives
-ai/            Prompts, JSON schemas, evaluator notes
-docs/          Architecture, gameplay, AI, and API decisions
+packages/ui   Shared UI primitives
+ai/            Game Master prompt, output schema, evaluation notes
+docs/          Architecture, gameplay, model runtime, and API contracts
 ```
 
-## Project standards
+## Development
 
-`main` is the protected integration and release branch. Work on `feat/*`, `fix/*`, `docs/*`, or `chore/*` branches and merge by pull request. Commit messages follow Conventional Commits, such as `feat(api): add quest contract`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Run the available web checks from the repository root:
 
-## Contracts
+```powershell
+pnpm typecheck
+pnpm build:web
+```
 
-The initial entities are Player, Quest, Objective, QuestAttempt, Reward, InventoryItem, Summon, Discovery, Progress, NPC, and WorldEvent. Rarity, verification, and quest status enums plus API and error envelopes are documented in [API contracts](docs/api/contracts.md). AI quest proposals follow [the JSON Schema](ai/schemas/quest-output.schema.json) and are treated as untrusted input.
+Work on `feat/*`, `fix/*`, `docs/*`, or `chore/*` branches and merge through a pull request. Commit messages use Conventional Commits, for example `docs: improve local setup guide`. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## More documentation
+
+- [Architecture overview](docs/architecture/overview.md)
+- [Gameplay contracts](docs/gameplay/contracts.md)
+- [API contracts](docs/api/contracts.md)
+- [Ollama model runtime](docs/ai/model-runtime.md)
+- [Quest output JSON Schema](ai/schemas/quest-output.schema.json)
 
 ## License
 
