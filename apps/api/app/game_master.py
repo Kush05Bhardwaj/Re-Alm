@@ -38,10 +38,11 @@ def _normalized_words(text: str) -> set[str]:
 
 
 def validate_quest_safety(proposal: AIQuestOutput) -> None:
-    if proposal.verification != [VerificationMethod.SELF_REPORTED] or any(
-        objective.verification != VerificationMethod.SELF_REPORTED for objective in proposal.objectives
-    ):
-        raise ValueError("Real-world objectives must use self-reported verification in this MVP")
+    allowed = {VerificationMethod.SELF_REPORTED, VerificationMethod.AI_REVIEW}
+    if not set(proposal.verification).issubset(allowed) or any(objective.verification not in allowed for objective in proposal.objectives):
+        raise ValueError("Generated objectives may use self-reported or image verification")
+    if all(objective.optional for objective in proposal.objectives):
+        raise ValueError("Quest must include at least one required objective")
     content = " ".join([proposal.title, proposal.description, *(objective.description for objective in proposal.objectives)])
     for pattern in SAFETY_PATTERNS:
         if re.search(pattern, content, flags=re.IGNORECASE):

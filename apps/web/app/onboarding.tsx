@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import type { APIResponse, EnvironmentType, Player, Quest } from "@realm/types";
+import { SelfVerification, VisionVerification } from "./verification";
 
 type Screen = "boot" | "welcome" | "create" | "world";
 type Archetype = "explorer" | "observer" | "seeker" | "wanderer";
@@ -38,6 +39,10 @@ export default function Onboarding() {
   const [questError, setQuestError] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [questActive, setQuestActive] = useState(false);
+  const [objectiveProgress, setObjectiveProgress] = useState<Record<string, boolean>>({});
+  const [verificationMessage, setVerificationMessage] = useState("");
+  const [verifying, setVerifying] = useState("");
 
   useEffect(() => {
     const first = window.setTimeout(() => setBootStage(1), 650);
@@ -51,7 +56,7 @@ export default function Onboarding() {
           try {
             const currentResponse = await fetch(`${apiBase}/api/quest/current`, { headers: { "X-Player-ID": id } });
             const currentBody = (await currentResponse.json()) as APIResponse<Quest>;
-            if (currentResponse.ok && currentBody.data) setQuest(currentBody.data);
+            if (currentResponse.ok && currentBody.data) { setQuest(currentBody.data); setQuestActive(currentBody.data.status === "active"); }
           } catch { /* The profile remains available if quest history cannot load. */ }
           setScreen("world");
           return;
@@ -96,11 +101,56 @@ export default function Onboarding() {
       const body = (await response.json()) as APIResponse<Quest>;
       if (!response.ok || !body.data) throw new Error(body.error?.message ?? "The Game Master could not create a quest.");
       setQuest(body.data);
+      setQuestActive(false);
+      setObjectiveProgress({});
     } catch (cause) {
       setQuestError(cause instanceof Error ? cause.message : "The Game Master is unreachable.");
     } finally {
       setQuestLoading(false);
     }
+  }
+
+  async function startQuest() {
+    if (!quest || !player) return;
+    try {
+      const response = await fetch(`${apiBase}/api/quest/${quest.id}/start`, { method: "POST", headers: { "X-Player-ID": player.id } });
+      const body = (await response.json()) as APIResponse<{ status: string }>;
+      if (!response.ok || !body.data) { setVerificationMessage(body.error?.message ?? "Could not start this quest."); return; }
+      setQuestActive(true);
+      setVerificationMessage("Quest started. Complete each required objective when ready.");
+    } catch { setVerificationMessage("Could not connect to start this quest."); }
+  }
+
+  async function verifyObjective(objectiveId: string, description: string, photo?: File) {
+    if (!quest || !player) return;
+    setVerifying(objectiveId);
+    setVerificationMessage("");
+    try {
+      if (photo) {
+        const result = await new VisionVerification().verify({ file: photo, objective: description, api: async (image) => {
+          const response = await fetch(`${apiBase}/api/quest/${quest.id}/objectives/${objectiveId}/verify`, { method: "POST", headers: { "Content-Type": "application/json", "X-Player-ID": player.id }, body: JSON.stringify({ image_base64: image }) });
+          const body = await response.json();
+          if (response.ok && body.data) {
+            setObjectiveProgress(body.data.objective_progress ?? {});
+        if (body.data.quest_completed) { setVerificationMessage("Quest complete. Rewards added to your profile."); setQuest(null); setPlayer(await requestPlayer("/api/player/me", undefined, player.id)); }
+            return body.data;
+          }
+          return { verified: false, method: "vision", message: body.error?.message ?? "Image review failed." };
+        } });
+        if (result.verified) setObjectiveProgress((current) => ({ ...current, [objectiveId]: true }));
+        setVerificationMessage(result.message);
+        return;
+      }
+      const result = await new SelfVerification().verify({ confirmed: true });
+      const payload = { confirmed: result.verified };
+      const response = await fetch(`${apiBase}/api/quest/${quest.id}/objectives/${objectiveId}/verify`, { method: "POST", headers: { "Content-Type": "application/json", "X-Player-ID": player.id }, body: JSON.stringify(payload) });
+      const body = await response.json();
+      if (!response.ok || !body.data) throw new Error(body.error?.message ?? "Could not verify objective.");
+      setObjectiveProgress(body.data.objective_progress ?? {});
+            if (body.data.quest_completed) { setVerificationMessage("Quest complete. Rewards added to your profile."); setQuest(null); void requestPlayer("/api/player/me", undefined, player.id).then(setPlayer); }
+      else setVerificationMessage(body.data.message);
+    } catch (cause) { setVerificationMessage(cause instanceof Error ? cause.message : "Verification could not be completed."); }
+    finally { setVerifying(""); }
   }
 
   return <main className="realm-shell" id="top">
@@ -150,7 +200,10 @@ export default function Onboarding() {
             <h2>{quest.title}</h2><p>{quest.description}</p>
             <ol>{quest.objectives.map((objective) => <li key={objective.id}>{objective.description}</li>)}</ol>
             <div className="quest-rewards"><span>✦ {quest.aether_reward} AETHER</span><span>{quest.xp_reward} EXP</span><span>DIFFICULTY {quest.difficulty}/5</span></div>
+            {!questActive && <button className="primary-button quest-button" onClick={startQuest}><span>START THIS QUEST</span><b>↗</b></button>}
+            {questActive && <div className="objective-verification"><p className="field-label">OBJECTIVES · VERIFY AS YOU GO</p>{quest.objectives.map((objective) => <div className="verify-row" key={objective.id}><span>{objective.description}</span>{objectiveProgress[objective.id] ? <b>VERIFIED</b> : objective.verification === "ai_review" ? <label className="verify-upload">UPLOAD PHOTO<input type="file" accept="image/*" capture="environment" disabled={!!verifying} onChange={(event) => { const file = event.target.files?.[0]; if (file) void verifyObjective(objective.id, objective.description, file); event.currentTarget.value = ""; }} /></label> : <button className="verify-button" disabled={!!verifying} onClick={() => void verifyObjective(objective.id, objective.description)}>{verifying === objective.id ? "SAVING…" : "YES"}</button>}</div>)}</div>}
           </article>}
+          {verificationMessage && <p className="verification-message" role="status">{verificationMessage}</p>}
         </section>
       </div>
       <aside className="player-card"><div className="card-topline"><span>PLAYER PROFILE</span><span className="online-tag"><i /> ACTIVE</span></div>

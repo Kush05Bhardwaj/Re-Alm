@@ -32,7 +32,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; interactive API docs are at `http://localhost:8000/docs`. Player setup is under `/api/v1/player`, and `POST /api/v1/quest/generate` asks Gemma for a validated, personalized quest. Mongo and AI readiness checks are `/api/v1/health/database` and `/api/v1/health/ai`. API startup does not require dependencies to be online; those endpoints report dependency readiness.
+The web app runs at `http://localhost:3000`. API endpoints are under `/api/v1`; interactive API docs are at `http://localhost:8000/docs`. Player setup is under `/api/v1/player`, and `POST /api/v1/quest/generate` asks Gemma for a validated, personalized quest. Quests can be started and self or image verified; configure `VISION_MODEL` to a vision capable Ollama model for photo review. Browser location verification is a one-shot check and does not store coordinates or routes. The active generated quest path currently requests self verification by the Game Master. See [API contracts](docs/api/contracts.md) for verification endpoints, safeguards, and limits. Mongo and AI readiness checks are `/api/v1/health/database` and `/api/v1/health/ai`. API startup does not require dependencies to be online; those endpoints report dependency readiness.
 
 For Atlas, put its connection URI in `MONGODB_URI` in `.env` and do not start the local Mongo service. For host-installed Ollama, set `OLLAMA_BASE_URL` as appropriate. Keep `.env` private.
 

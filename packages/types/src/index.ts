@@ -6,6 +6,9 @@ export type QuestCategory = "exploration" | "observation" | "discovery" | "myste
 export type EnvironmentType = "unknown" | "indoor" | "urban" | "nature" | "home";
 export type WeatherType = "unknown" | "clear" | "rain" | "snow" | "hot" | "cold";
 export type DayPeriod = "unknown" | "morning" | "afternoon" | "evening" | "night";
+export type VerificationLevel = "self" | "location" | "vision" | "combined";
+export interface GeoPoint { latitude: number; longitude: number }
+export interface VerificationResult { verified: boolean; method: VerificationLevel; message: string; confidence?: number }
 
 export interface PlayerStats {
   str: number;
