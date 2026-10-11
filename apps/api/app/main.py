@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Header
+from fastapi import FastAPI, HTTPException, Request, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -20,8 +20,10 @@ from .contracts import (
     QuestGenerationRequest,
     QuestStatus,
     ProgressionEventType,
+    AetherTransaction,
 )
 from .game_master import QuestGenerationError, generate_quest
+from .economy import QUEST_COMPLETE_AETHER, earn_aether
 from .progression import add_xp, calculate_next_level_xp
 from .verification import SelfVerification, VisionVerification
 
@@ -148,7 +150,7 @@ async def create_quest(
         objectives=[objective.model_copy(update={"id": str(uuid4())}) for objective in proposal.objectives],
         verification=proposal.verification,
         xp_reward=proposal.xp_reward,
-        aether_reward=proposal.aether_reward,
+        aether_reward=QUEST_COMPLETE_AETHER,
         status=QuestStatus.AVAILABLE,
         level=player.level,
         created_at=datetime.now(timezone.utc),
@@ -225,6 +227,7 @@ async def verify_objective(quest_id: str, objective_id: str, payload: dict,
     completed = all(progress.get(item_id) for item_id in required)
     if completed:
         rewards.append(await add_xp(app.state.database, x_player_id, f"quest:{quest_id}", ProgressionEventType.QUEST_COMPLETE, quest_id))
+        await earn_aether(app.state.database, x_player_id, f"quest-clear:{quest_id}", QUEST_COMPLETE_AETHER, quest_id)
         await app.state.database.quest_attempts.update_one(
             {"quest_id": quest_id, "player_id": x_player_id, "status": QuestStatus.ACTIVE.value},
             {"$set": {"completed_at": datetime.now(timezone.utc).isoformat(), "status": QuestStatus.COMPLETED.value}},
@@ -236,7 +239,7 @@ async def verify_objective(quest_id: str, objective_id: str, payload: dict,
         if completion.modified_count:
             await app.state.database.players.update_one(
                 {"id": x_player_id},
-                {"$inc": {"aether": quest["aether_reward"]}, "$addToSet": {"progress.completed_quest_ids": quest_id}},
+                {"$addToSet": {"progress.completed_quest_ids": quest_id}},
             )
     player_after = await app.state.database.players.find_one({"id": x_player_id}, {"level": 1, "experience": 1, "stats": 1})
     after = int((player_after or {}).get("level", 1))
@@ -252,6 +255,20 @@ async def verify_objective(quest_id: str, objective_id: str, payload: dict,
                              "level_before": before, "level_after": after,
                              "levels_gained": max(0, after - before), "stat_increases": stat_increases,
                              "experience_after": int((player_after or {}).get("experience", 0))})
+
+
+@app.get("/api/aether/ledger", response_model=APIResponse, tags=["economy"])
+@app.get("/api/v1/aether/ledger", response_model=APIResponse, tags=["economy"], include_in_schema=False)
+async def get_aether_ledger(
+    limit: int = Query(default=50, ge=1, le=100),
+    x_player_id: str = Header(..., alias="X-Player-ID"),
+) -> APIResponse:
+    if await app.state.database.players.find_one({"id": x_player_id}, {"id": 1}) is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    entries = await app.state.database.aether_ledger.find({"player_id": x_player_id}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    for entry in entries:
+        entry.pop("_id", None)
+    return APIResponse(data=[AetherTransaction.model_validate(entry) for entry in entries])
 
 
 @app.get("/api/progress", response_model=APIResponse, tags=["progression"])

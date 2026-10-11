@@ -28,6 +28,12 @@ class ProgressionEventType(StrEnum):
     RARE_DISCOVERY = "RARE_DISCOVERY"
 
 
+class AetherTransactionType(StrEnum):
+    AETHER_EARN = "AETHER_EARN"
+    AETHER_SPEND = "AETHER_SPEND"
+    AETHER_REFUND = "AETHER_REFUND"
+
+
 class QuestStatus(StrEnum):
     DRAFT = "draft"
     AVAILABLE = "available"
@@ -234,6 +240,18 @@ class ProgressionEvent(BaseModel):
     level_after: int = Field(ge=1)
     stat_increases: dict[str, int] = Field(default_factory=dict)
     source_id: str | None = None
+
+
+class AetherTransaction(BaseModel):
+    id: str
+    player_id: str
+    transaction_type: AetherTransactionType
+    amount: int = Field(ge=1)
+    source_id: str | None = None
+    created_at: datetime
+    status: str = "applied"
+    balance_before: int | None = Field(default=None, ge=0)
+    balance_after: int | None = Field(default=None, ge=0)
 
 
 class NPC(BaseModel):
